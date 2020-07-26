@@ -1,13 +1,20 @@
-TARGETS = my_first_mbset 
+TARGETS = my_first_mbs mbs
 
 CC = gcc
 OUTPUT_OPTION=-MMD -MP -o $@
-CFLAGS = -g -O2 \
-         -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-clobbered 
+CFLAGS = -Wall -g -O2 -Iutil
 
-SRC_CTLR    = my_first_mbset.c
+util/util_sdl.o: CFLAGS += $(shell sdl2-config --cflags)
 
-DEP=$(SRC_CTLR:.c=.d) 
+SRC_MY_FIRST_MBS = my_first_mbs.c
+SRC_MBS = mbs.c \
+          util/util_misc.c \
+          util/util_sdl.c \
+          util/util_png.c \
+          util/util_jpeg.c
+
+DEP = $(SRC_MY_FIRST_MBS:.c=.d) \
+      $(SRC_MBS:.c=.d) 
 
 #
 # build rules
@@ -15,8 +22,12 @@ DEP=$(SRC_CTLR:.c=.d)
 
 all: $(TARGETS)
 
-my_first_mbset: $(SRC_CTLR:.c=.o)
-	$(CC) -pthread -lreadline -lm -o $@ $(SRC_CTLR:.c=.o)
+my_first_mbs: $(SRC_MY_FIRST_MBS:.c=.o)
+	$(CC) -lm -o $@ $(SRC_MY_FIRST_MBS:.c=.o)
+
+mbs: $(SRC_MBS:.c=.o)
+	$(CC) -lm -ljpeg -lpng -lSDL2 -lSDL2_ttf -lSDL2_mixer \
+              -o $@ $(SRC_MBS:.c=.o)
 
 -include $(DEP)
 
@@ -26,4 +37,3 @@ my_first_mbset: $(SRC_CTLR:.c=.o)
 
 clean:
 	rm -f $(TARGETS) $(DEP) $(DEP:.d=.o)
-
