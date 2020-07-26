@@ -101,6 +101,11 @@ static void set_color(int32_t color);
 static void font_init(int32_t ptsize);
 static void pane_terminate(struct pane_list_head_s * pane_list_head, pane_cx_t * pane_cx);
 static int32_t pane_move_speed(void);
+static rect_t init_pane(int32_t x_disp, int32_t y_disp, int32_t w, int32_t h,
+                        int32_t border_style, int32_t border_color, bool clear,
+                        rect_t * loc_full_pane, rect_t * loc_bar_move, rect_t * loc_bar_x);
+static rect_t get_pane(int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total, 
+                       int32_t border_style);
 static int find_1_intersect(point_t *p1, point_t *p2, rect_t *pane, point_t *p_intersect);
 static int find_n_intersect(point_t *p1, point_t *p2, rect_t *pane, point_t *p_intersect);
 static int find_x_intersect(point_t *p1, point_t *p2, double X, point_t *p_intersect);
@@ -146,6 +151,8 @@ int32_t sdl_init(int32_t *w, int32_t *h, bool resizeable, bool swap_white_black)
     }
 
     // create SDL Window and Renderer
+    sdl_win_width = *w;
+    sdl_win_height = *h;
     if (SDL_CreateWindowAndRenderer(*w, *h, SDL_FLAGS, &sdl_window, &sdl_renderer) != 0) {
         ERROR("SDL_CreateWindowAndRenderer failed\n");
         return -1;
@@ -154,7 +161,7 @@ int32_t sdl_init(int32_t *w, int32_t *h, bool resizeable, bool swap_white_black)
     // the size of the created window may be different than what was requested
     // - call sdl_poll_event to flush all of the initial events,
     //   and especially to process the SDL_WINDOWEVENT_SIZE_CHANGED event
-    //   which will update sdl_win_width and sdl_win_height
+    //   which may update sdl_win_width and sdl_win_height
     // - return the updated window width & height to caller
     sdl_poll_event();
     DEBUG("sdl_win_width=%d sdl_win_height=%d\n", sdl_win_width, sdl_win_height);
@@ -218,6 +225,29 @@ int32_t sdl_init(int32_t *w, int32_t *h, bool resizeable, bool swap_white_black)
     return 0;
 }
 
+void sdl_get_window_size(int32_t *w, int32_t *h)
+{
+    *w = sdl_win_width;
+    *h = sdl_win_height;
+}
+
+void sdl_get_max_texture_dim(int32_t * max_texture_dim)
+{
+    // return the max texture dimension to caller;
+    // - SDL provides us with max_texture_width and max_texture_height, usually the same
+    // - the min of max_texture_width/height is returned to caller
+    // - this returned max_texture_dim is to be used by the caller to limit the maximum
+    //   width and height args passed to sdl_create_texture()
+    if (SDL_GetRendererInfo(sdl_renderer, &sdl_renderer_info) != 0) {
+        ERROR("SDL_SDL_GetRendererInfo failed\n");
+        *max_texture_dim = 0;
+    }
+    INFO("max_texture_width=%d  max_texture_height=%d\n",
+         sdl_renderer_info.max_texture_width, sdl_renderer_info.max_texture_height);
+    *max_texture_dim = min(sdl_renderer_info.max_texture_width, 
+                           sdl_renderer_info.max_texture_height);
+}
+
 static void exit_handler(void)
 {
     int32_t i;
@@ -237,23 +267,6 @@ static void exit_handler(void)
     SDL_DestroyRenderer(sdl_renderer);
     SDL_DestroyWindow(sdl_window);
     SDL_Quit();
-}
-
-void sdl_get_max_texture_dim(int32_t * max_texture_dim)
-{
-    // return the max texture dimension to caller;
-    // - SDL provides us with max_texture_width and max_texture_height, usually the same
-    // - the min of max_texture_width/height is returned to caller
-    // - this returned max_texture_dim is to be used by the caller to limit the maximum
-    //   width and height args passed to sdl_create_texture()
-    if (SDL_GetRendererInfo(sdl_renderer, &sdl_renderer_info) != 0) {
-        ERROR("SDL_SDL_GetRendererInfo failed\n");
-        *max_texture_dim = 0;
-    }
-    INFO("max_texture_width=%d  max_texture_height=%d\n",
-         sdl_renderer_info.max_texture_width, sdl_renderer_info.max_texture_height);
-    *max_texture_dim = min(sdl_renderer_info.max_texture_width, 
-                           sdl_renderer_info.max_texture_height);
 }
 
 static void set_color(int32_t color)
@@ -360,11 +373,11 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
         for (pane_cx = TAILQ_FIRST(&pane_list_head); pane_cx != NULL; pane_cx = pane_cx_next) {
             pane_cx_next = TAILQ_NEXT(pane_cx, entries);
 
-            pane_cx->pane = sdl_init_pane(pane_cx->x_disp, pane_cx->y_disp, pane_cx->w_total, pane_cx->h_total,
-                                          pane_cx->border_style, 
-                                          pane_cx == FG_PANE_CX ? GREEN : BLUE,  
-                                          true,   // clear
-                                          &loc_full_pane, &loc_bar_move, &loc_bar_terminate);
+            pane_cx->pane = init_pane(pane_cx->x_disp, pane_cx->y_disp, pane_cx->w_total, pane_cx->h_total,
+                                      pane_cx->border_style, 
+                                      pane_cx == FG_PANE_CX ? GREEN : BLUE,  
+                                      true,   // clear
+                                      &loc_full_pane, &loc_bar_move, &loc_bar_terminate);
 
             sdl_register_event(&pane_cx->pane, &loc_full_pane, SDL_EVENT_PANE_SELECT, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
             sdl_register_event(&pane_cx->pane, &loc_full_pane, SDL_EVENT_PANE_BACKGROUND, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
@@ -529,7 +542,7 @@ void sdl_pane_create(struct pane_list_head_s * pane_list_head, pane_handler_t pa
     pane_cx->w_total        = w_total;
     pane_cx->h_total        = h_total;
     pane_cx->border_style   = border_style;
-    pane_cx->pane           = sdl_get_pane(x_disp, y_disp, w_total, h_total, border_style);
+    pane_cx->pane           = get_pane(x_disp, y_disp, w_total, h_total, border_style);
     pane_cx->vars           = NULL;
     pane_cx->pane_handler   = pane_handler;
     pane_cx->pane_list_head = pane_list_head;
@@ -539,6 +552,16 @@ void sdl_pane_create(struct pane_list_head_s * pane_list_head, pane_handler_t pa
 
     // call the pane_handler init
     pane_handler(pane_cx, PANE_HANDLER_REQ_INITIALIZE, init_params, NULL);
+}
+
+void sdl_pane_update(pane_cx_t *pane_cx, 
+                     int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total)
+{
+    pane_cx->x_disp   = x_disp;
+    pane_cx->y_disp   = y_disp;
+    pane_cx->w_total  = w_total;
+    pane_cx->h_total  = h_total;
+    pane_cx->pane     = get_pane(x_disp, y_disp, w_total, h_total, pane_cx->border_style);
 }
 
 static void pane_terminate(struct pane_list_head_s * pane_list_head, pane_cx_t * pane_cx)
@@ -573,9 +596,9 @@ static int32_t pane_move_speed(void)
     return speed;
 }
 
-rect_t sdl_init_pane(int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total, 
-                     int32_t border_style, int32_t border_color, bool clear,
-                     rect_t * loc_full_pane, rect_t * loc_bar_move, rect_t * loc_bar_terminate)
+rect_t init_pane(int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total, 
+                 int32_t border_style, int32_t border_color, bool clear,
+                 rect_t * loc_full_pane, rect_t * loc_bar_move, rect_t * loc_bar_terminate)
 {
     rect_t locz  = {0, 0, 0, 0};  // zero
     rect_t panez  = {0, 0, 0, 0};  // zero
@@ -652,7 +675,7 @@ rect_t sdl_init_pane(int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_
     return panez;
 }
 
-rect_t sdl_get_pane(int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total, int32_t border_style)
+rect_t get_pane(int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total, int32_t border_style)
 {
     rect_t panez  = {0, 0, 0, 0};  // zero
 

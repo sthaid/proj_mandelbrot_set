@@ -151,6 +151,7 @@ typedef struct pane_cx_s {
 
 // sdl initialize
 int32_t sdl_init(int32_t * w, int32_t * h, bool resizeable, bool swap_white_black);
+void sdl_get_window_size(int32_t * w, int32_t * h);
 void sdl_get_max_texture_dim(int32_t * max_texture_dim);
 
 // pane support
@@ -163,10 +164,8 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
 void sdl_pane_create(struct pane_list_head_s * pane_list_head, pane_handler_t pane_handler, void * init,
                      int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total, 
                      int32_t border_style, void * display_cx);
-rect_t sdl_init_pane(int32_t x_disp, int32_t y_disp, int32_t w, int32_t h,
-                     int32_t border_style, int32_t border_color, bool clear,
-                     rect_t * loc_full_pane, rect_t * loc_bar_move, rect_t * loc_bar_x);
-rect_t sdl_get_pane(int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total, int32_t border_style);
+void sdl_pane_update(pane_cx_t *pane_cx,
+                     int32_t x_disp, int32_t y_disp, int32_t w_total, int32_t h_total);
 
 // display init and present
 void sdl_display_init(int32_t * win_width, int32_t * win_height, bool * win_minimized);
