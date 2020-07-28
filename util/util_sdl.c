@@ -505,6 +505,8 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
                     redraw = true;
                 } else if (ret == PANE_HANDLER_RET_DISPLAY_REDRAW) {
                     redraw = true;
+                } else if (ret == PANE_HANDLER_RET_NO_ACTION) {
+                    continue;
                 }
             }
 
