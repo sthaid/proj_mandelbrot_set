@@ -60,15 +60,17 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 {
     // XXX simplify by making these all static
     struct {
-        texture_t     texture;
-        unsigned int *pixels;
-        int           win_width;
-        int           win_height;
-        double        pixel_size;
-        double        ctr_a;
-        double        ctr_b;
+        int  notyet;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
+
+    static texture_t     texture;
+    static unsigned int *pixels;
+    static int           win_width;
+    static int           win_height;
+    static double        pixel_size;
+    static double        ctr_a;
+    static double        ctr_b;
 
     #define SDL_EVENT_ZOOM     (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 1)
@@ -84,16 +86,17 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         int w, h;
 
+        vars = pane_cx->vars = calloc(1,sizeof(*vars));
+
         sdl_get_window_size(&w, &h);
 
-        vars = pane_cx->vars = calloc(1,sizeof(*vars));
-        vars->texture    = NULL;
-        vars->pixels     = NULL;
-        vars->win_width  = w;
-        vars->win_height = h;
-        vars->pixel_size = INITIAL_PIXEL_SIZE;
-        vars->ctr_a      = INITIAL_CTR_A;
-        vars->ctr_b      = INITIAL_CTR_B;
+        texture    = NULL;
+        pixels     = NULL;
+        win_width  = w;
+        win_height = h;
+        pixel_size = INITIAL_PIXEL_SIZE;
+        ctr_a      = INITIAL_CTR_A;
+        ctr_b      = INITIAL_CTR_B;
 
         INFO("PANE x,y,w,h  %d %d %d %d\n",
             pane->x, pane->y, pane->w, pane->h);
@@ -112,30 +115,30 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         // if window size has changed then update the pane's 
         // location within the window
         sdl_get_window_size(&curr_win_width, &curr_win_height);
-        if (curr_win_width != vars->win_width || curr_win_height != vars->win_height) {
+        if (curr_win_width != win_width || curr_win_height != win_height) {
             INFO("XXX NEW WIN SIZE %d %d\n", curr_win_width, curr_win_height);
             sdl_pane_update(pane_cx, 0, 0, curr_win_width, curr_win_height);
-            vars->win_width = curr_win_width;
-            vars->win_height = curr_win_height;
+            win_width = curr_win_width;
+            win_height = curr_win_height;
         }
 
         // if the texture hasn't been allocated yet, or the size of the
         // texture doesn't match the size of the pane then
         // re-allocate the texture and the pixels array
-        if ((vars->texture == NULL) || 
-            ((sdl_query_texture(vars->texture, &curr_texture_width, &curr_texture_height), true) &&
+        if ((texture == NULL) || 
+            ((sdl_query_texture(texture, &curr_texture_width, &curr_texture_height), true) &&
              (curr_texture_width != pane->w || curr_texture_height != pane->h)))
         {
-            sdl_destroy_texture(vars->texture);
-            free(vars->pixels);
+            sdl_destroy_texture(texture);
+            free(pixels);
 
             INFO("ALLOCATING TEXTURE AND PIXELS\n");
-            vars->texture = sdl_create_texture(pane->w, pane->h);
-            vars->pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
+            texture = sdl_create_texture(pane->w, pane->h);
+            pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
         }
 
         // xxx test code
-        //vars->pixels[i] =  (0 << 0) | (255 << 8) | (  0 << 16) | (255 << 24);
+        //pixels[i] =  (0 << 0) | (255 << 8) | (  0 << 16) | (255 << 24);
 
 
         // comment and clean up
@@ -150,24 +153,24 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
             for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
-                a = vars->ctr_a + (pixel_x - pixel_x_ctr) * vars->pixel_size;
-                b = vars->ctr_b - (pixel_y - pixel_y_ctr) * vars->pixel_size;
+                a = ctr_a + (pixel_x - pixel_x_ctr) * pixel_size;
+                b = ctr_b - (pixel_y - pixel_y_ctr) * pixel_size;
                 c = a + b * I;
                 its = mandelbrot_iterations(c);
-                vars->pixels[xxx++] = (its >= MAX_ITER ? PIXEL_BLACK : PIXEL_WHITE);
+                pixels[xxx++] = (its >= MAX_ITER ? PIXEL_BLACK : PIXEL_WHITE);
             }
         }
-        sdl_update_texture(vars->texture, (void*)vars->pixels, pane->w*BYTES_PER_PIXEL);
+        sdl_update_texture(texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
 
         // render the texture
-        sdl_render_texture(pane, 0, 0, vars->texture);
+        sdl_render_texture(pane, 0, 0, texture);
 
 #if 1
         // xxx debug
         static int count;
         sdl_render_printf(pane, 0, 0, 20, WHITE, BLACK, "** %6d **", count++);
         sdl_render_printf(pane, 0, ROW2Y(1,20), 20, WHITE, BLACK, "** %g **", 
-            INITIAL_PIXEL_SIZE / vars->pixel_size);
+            INITIAL_PIXEL_SIZE / pixel_size);
 #endif
 
         // register for events
@@ -192,20 +195,20 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         case SDL_EVENT_ZOOM:
             INFO("ZOOM\n");
             if (event->mouse_wheel.delta_y > 0) {
-                vars->pixel_size /= 2.;
+                pixel_size /= 2.;
             } else if (event->mouse_wheel.delta_y < 0) {
-                vars->pixel_size *= 2.;
+                pixel_size *= 2.;
             }
             break;
         case SDL_EVENT_CENTER:
-            vars->ctr_a += (event->mouse_click.x - (pane->w/2)) * vars->pixel_size;
-            vars->ctr_b -= (event->mouse_click.y - (pane->h/2)) * vars->pixel_size;
+            ctr_a += (event->mouse_click.x - (pane->w/2)) * pixel_size;
+            ctr_b -= (event->mouse_click.y - (pane->h/2)) * pixel_size;
             break;
         case 'r':
             // xxx case 'r' to reset
-            vars->ctr_a = INITIAL_CTR_A;
-            vars->ctr_b = INITIAL_CTR_B;
-            vars->pixel_size = INITIAL_PIXEL_SIZE;
+            ctr_a = INITIAL_CTR_A;
+            ctr_b = INITIAL_CTR_B;
+            pixel_size = INITIAL_PIXEL_SIZE;
             break;
         case 'q':
             // xxx maybe should clean up first
