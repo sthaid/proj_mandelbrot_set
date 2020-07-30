@@ -1,24 +1,21 @@
-// XXX code was reviewed
-// XXX should long double or double be used
+// XXX review these again, check for variable name consistency
+// XXX make this file a util
+// XXX comments
 
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
-#include "num.h"
+#include <util_misc.h>
+#include <num.h>
 
 #define SIGN_BIT (1L << 63)
 
-// ----------------------------------------------------------------------
+// -----------------  NUM INIT AND VALUE CONVERSIONS  -------------------
 
-void num_init_from_long(num_t *nr, long v)
-{
-    memset(nr,0,sizeof(num_t));
-    nr->bits[5] = v;
-}
-
-void num_init_from_double(num_t *nr, long double v)
+void num_init(num_t *nr, long double v)
 {
     bool isneg = v < 0;
     unsigned long integer;
@@ -34,7 +31,9 @@ void num_init_from_double(num_t *nr, long double v)
     memset(nr,0,sizeof(num_t));
     nr->bits[5] = integer;
     nr->bits[4] = fraction * ((long double)UINT64_MAX + 1);
-    //XXX assert [4]  if fraction then [4] must not be 0
+    if (fraction != 0 && nr->bits[4] == 0) {
+        FATAL("fraction=%0.20Lf nr->bits[4]=0x%lx\n", fraction, nr->bits[4]);
+    }
 
     if (isneg) {
         nr->bits[5] = ~nr->bits[5];
@@ -42,7 +41,7 @@ void num_init_from_double(num_t *nr, long double v)
     }
 }
 
-long double num_to_double(num_t *n)
+long double num_value(num_t *n)
 {
     bool isneg;
     unsigned long integer;
@@ -67,17 +66,35 @@ long double num_to_double(num_t *n)
     return dbl;
 }
 
-char * num_to_str(char *s, num_t *n)
-{
-    long double dbl;
+// -----------------  MISC  ------------------------------------
 
-    dbl = num_to_double(n);
-    sprintf(s, "%0.15Lf  0x%lx 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx", 
-            dbl, n->bits[5], n->bits[4], n->bits[3], n->bits[2], n->bits[1], n->bits[0]);
-    return s;
+void num_negate(num_t *n)
+{
+    int i;
+
+    for (i = 0; i < 6; i++) {
+        n->bits[i] = ~n->bits[i];
+    }
 }
 
-// ----------------------------------------------------------------------
+void num_lshift(num_t *n, int count)
+{
+    int i;
+    unsigned long bits, copy_bits;
+
+    if (count < 0 || count > 63) {
+        FATAL("count=%d\n", count);
+    }
+
+    bits = 0;
+    for (i = 0; i < 6; i++) {
+        copy_bits = n->bits[i] >> (64-count);
+        n->bits[i] = (n->bits[i] << count) | bits;
+        bits = copy_bits;
+    }
+}
+
+// -----------------  ADDITION  -----------------------------------------
 
 void num_add(num_t *nr, num_t *n1, num_t *n2) 
 {
@@ -97,10 +114,10 @@ void num_add(num_t *nr, num_t *n1, num_t *n2)
         }
     }
 
-    memcpy(nr, &result, sizeof(num_t));
+    *nr = result;
 }
 
-// ----------------------------------------------------------------------
+// -----------------  MULTIPLICATION  -----------------------------------
 
 void num_multiply(num_t *nr, num_t *n1, num_t *n2_arg) 
 {
@@ -113,11 +130,9 @@ void num_multiply(num_t *nr, num_t *n1, num_t *n2_arg)
 
     isneg = (n2_arg->bits[5] & SIGN_BIT);
     
-    memcpy(&n2, n2_arg, sizeof(num_t));
-    if (isneg) { //XXX need a routine
-        for (i = 0; i < 6; i++) {
-            n2.bits[i] = ~n2.bits[i];
-        }
+    n2 = *n2_arg;
+    if (isneg) {
+        num_negate(&n2);
     }
 
     for (i = 0; i < 6; i++) {
@@ -142,10 +157,8 @@ void num_multiply(num_t *nr, num_t *n1, num_t *n2_arg)
         num_add(nr, nr, &r[i]);
     }
 
-    if (isneg) { //XXX need a routine
-        for (i = 0; i < 6; i++) {
-            nr->bits[i] = ~nr->bits[i];
-        }
+    if (isneg) {
+        num_negate(nr);
     }
 }
 
@@ -167,40 +180,49 @@ void num_multiply2(num_t *nr, num_t *n1, long n2)
         carry = (tmp128 >> 64);
     }
 
-    if (isneg) { //XXX need a routine
-        for (i = 0; i < 6; i++) {
-            nr->bits[i] = ~nr->bits[i];
-        }
+    if (isneg) {
+        num_negate(nr);
     }
 }
 
-// ----------------------------------------------------------------------
+// -----------------  UNIT TEST  ----------------------------------------
 
 #ifdef UNIT_TEST
 
 // build for UNIT_TEST:
-//   gcc -Wall -DUNIT_TEST -O2 -o num -lm num.c
+//   gcc -Wall -DUNIT_TEST -Iutil -I. -O2 -o num -lm num.c util/util_misc.c
+
+char * num_to_str(char *s, num_t *n)
+{
+    long double dbl;
+
+    dbl = num_value(n);
+    sprintf(s, "%0.15Lf  0x%lx 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx", 
+            dbl, n->bits[5], n->bits[4], n->bits[3], n->bits[2], n->bits[1], n->bits[0]);
+    return s;
+}
 
 int main()
 {
     num_t nr, n1, n2;
     long n2_long;
+    int shift_count;
     char s[200];
     long double dbl;
 
-    printf("\ntest num_init_from_double...\n");
+    printf("\ntest num_init...\n");
     dbl = 1.9999;
-    num_init_from_double(&n1, dbl);
+    num_init(&n1, dbl);
     printf("%Lg = %s\n", dbl, num_to_str(s,&n1));
 
-    printf("\ntest num_init_from_double...\n");
+    printf("\ntest num_init...\n");
     dbl = -0.000001;
-    num_init_from_double(&n1, dbl);
+    num_init(&n1, dbl);
     printf("%Lg = %s\n", dbl, num_to_str(s,&n1));
 
-    printf("\ntest num_init_from_double...\n");
+    printf("\ntest num_init...\n");
     dbl = -21.75;
-    num_init_from_double(&n1, dbl);
+    num_init(&n1, dbl);
     printf("%Lg = %s\n", dbl, num_to_str(s,&n1));
 
     printf("\ntest num_add ...\n");
@@ -380,25 +402,25 @@ int main()
     printf("n2 = %ld\n", n2_long);
     printf("nr = %s\n", num_to_str(s,&nr));
 
+    printf("\ntest num_negate and num_add...\n");
+    num_init(&n1, 0);
+    num_init(&n2, 1);
+    num_negate(&n2);
+    num_add(&nr, &n1, &n2);
+    printf("n1 = %s\n", num_to_str(s,&n1));
+    printf("n2 = %s\n", num_to_str(s,&n2));
+    printf("nr = %s\n", num_to_str(s,&nr));
+    
+    printf("\ntest num_lshift...\n");
+    num_init(&n1, 1.55);
+    n1.bits[3] = 0xf000000000000000;
+    nr = n1;
+    shift_count = 1;
+    num_lshift(&nr, shift_count);
+    printf("n1 = %s\n", num_to_str(s,&n1));
+    printf("shift_count = %d\n", shift_count);
+    printf("nr = %s\n", num_to_str(s,&nr));
+
     return 0;
 }
-#endif
-
-
-
-#if 0  //XXX
-07/29/20 16:20:09.500 INFO pane_hndlr: ZOOM pixel_size 0.000029296875000  0x0 0x1eb851eb851eb 0x8000000000000000 0x0 0x0 0x0
-07/29/20 16:20:09.508 INFO pane_hndlr:    step1 B = 0.999970703125000  0x0 0xfffe147ae147ae14 0x8000000000000000 0x0 0x0 0x0
-07/29/20 16:20:09.508 INFO pane_hndlr:    step2 B = 0.999970703125000  0x0 0xfffe147ae147ae14 0x8000000000000000 0x0 0x0 0x0
-    memset(&n1, 0, sizeof(n1));
-    n1.bits[5] = 0;
-    n1.bits[4] = 0x1eb851eb851eb;
-    n1.bits[3] = 0x8000000000000000;
-    n2_long = -1; 
-    num_multiply2(&nr, &n1, n2_long);
-    printf("nr = %s\n", num_to_str(s,&nr));
-    printf("n1 = %s\n", num_to_str(s,&n1));
-    printf("n2 = %ld\n", n2_long);
-
-    return 0;
 #endif
