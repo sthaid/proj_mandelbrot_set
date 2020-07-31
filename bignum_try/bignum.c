@@ -1,7 +1,3 @@
-// XXX review these again, check for variable name consistency
-// XXX make this file a util
-// XXX comments
-
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -151,8 +147,6 @@ void num_multiply(num_t *nr, num_t *n1_arg, num_t *n2_arg)
         num_negate(&n2);
     }
 
-
-
     for (i = 0; i < 6; i++) {
         carry = 0;
         for (j = 0; j < 6; j++) {
@@ -180,6 +174,7 @@ void num_multiply(num_t *nr, num_t *n1_arg, num_t *n2_arg)
     }
 }
 
+// XXX make both numbers positive here too, like above routine
 void num_multiply2(num_t *nr, num_t *n1, long n2) 
 {
     unsigned long carry;
@@ -208,8 +203,7 @@ void num_multiply2(num_t *nr, num_t *n1, long n2)
 #ifdef UNIT_TEST
 
 // build for UNIT_TEST:
-//   gcc -Wall -DUNIT_TEST -Iutil -I. -O2 -o num -lm num.c util/util_misc.c
-
+//   gcc -Wall -DUNIT_TEST -I../util -I. -O2 -o bignum_unit_test -lm bignum.c ../util/util_misc.c
 
 int main()
 {
