@@ -1,11 +1,35 @@
-// XXX conditionally use double vs long double
-// XXX INITIAL_PIXEL_SIZE macro use of pane->w
-// XXX maybe center initial sizeos around +/-2
 
 // XXX define controls
+//   ZOOM: + / - zoom,  AND MAYBE mouse wheel is zoom
+//   PAN:  left click is pan   AND arrows are pan
+//   CENTER ON MOUSE:  right click center
+//   'r' reset
+// MAYBE
+//   esc is undo pan or zoom
 
 // XXX optimize performance
-// XXX how to pan
+// - multiple threads, but this may not help, but define a number of threads
+// - save values and migrate them to new save array when zoom changes
+//    - save at twice the current resolution (pixel_size)
+// - the render code need not wait for all the values to be ready, display a unique color if not ready
+// - the threads(s) can spiral outward
+// - can we more quickly stop iterating if we are sure early that we're in the mandelbrot set
+// - print performance metric to terminal
+
+// XXX colors
+
+// XXX optimize depth
+// - conditionally use double vs long double
+
+// XXX Misc
+// - INITIAL_PIXEL_SIZE macro use of pane->w
+// - maybe center initial sizeos around +/-2
+// - display status in terminal and not in window
+// - control to click and either zoom in,out or none
+// - how to have a control to center vs pan
+
+// XXX Other features 
+// - bookmark favorite locations, including zoom level, and possiley the cache too
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -25,8 +49,9 @@
 //
 
 #define DEFAULT_WIN_WIDTH  800
-#define DEFAULT_WIN_HEIGHT  800
+#define DEFAULT_WIN_HEIGHT 800
 
+// xxx fix this
 #define INITIAL_CTR_CA       -0.75
 #define INITIAL_CTR_CB       0.0
 #define INITIAL_PIXEL_SIZE  (3. / pane->w)
@@ -36,7 +61,7 @@
 #define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
 #define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
 
-#define ZOOM 10.0
+#define ZOOM 2.0
 
 //
 // prototypes
@@ -173,7 +198,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
               count++, zoom_factor);
 
         // register for events
-        sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
 
         // return
         return PANE_HANDLER_RET_NO_ACTION;
@@ -225,7 +250,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     return PANE_HANDLER_RET_NO_ACTION;
 }
 
-// -----------------  MANDELBROT  ---------------------------------------
+// -----------------  MANDELBROT SET EVALUATOR  -------------------------
 
 static int mandelbrot_iterations(double ca, double cb)
 {
@@ -235,11 +260,7 @@ static int mandelbrot_iterations(double ca, double cb)
     int     i;
 
     for (i = 0; i < MAX_ITER; i++) {
-        if (i == 0) {
-            z = c;
-        } else {
-            z = z * z + c;
-        }
+        z = z * z + c;
 
         abs_za = fabs(creal(z));
         abs_zb = fabs(cimag(z));
@@ -247,10 +268,23 @@ static int mandelbrot_iterations(double ca, double cb)
             continue;
         } else if (abs_za >= 2 || abs_zb >= 2) {
             break;
-        } else if (abs_za*abs_za + abs_zb*abs_zb > 4) {
+        } else if (abs_za*abs_za + abs_zb*abs_zb >= 4) {
             break;
         }
     }
 
     return i;
 }
+
+// -----------------  MANDELBROT SET CACHED RESULTS  --------------------
+
+// get 
+// set
+// change_center
+// change_pixel_size
+// thread
+//   poll for need to work
+//   if change_center, may need to recenter on ctr_c and 
+//    then spiral out
+
+
