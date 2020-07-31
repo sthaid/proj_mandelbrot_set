@@ -1,4 +1,12 @@
-// XXX long double vs double
+// XXX conditionally use double vs long double
+// XXX INITIAL_PIXEL_SIZE macro use of pane->w
+// XXX maybe center initial sizeos around +/-2
+
+// XXX define controls
+
+// XXX optimize performance
+// XXX how to pan
+
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -12,15 +20,30 @@
 #include <util_sdl.h>
 #include <util_misc.h>
 
-#include <num.h>
+//
+// defines
+//
 
-#define DEFAULT_WIN_WIDTH 800
-#define DEFAULT_WIN_HEIGHT 800
+#define DEFAULT_WIN_WIDTH  800
+#define DEFAULT_WIN_HEIGHT  800
+
+#define INITIAL_CTR_CA       -0.75
+#define INITIAL_CTR_CB       0.0
+#define INITIAL_PIXEL_SIZE  (3. / pane->w)
 
 #define MAX_ITER 1000
 
+#define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
+#define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
+
+#define ZOOM 10.0
+
+//
+// prototypes
+//
+
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
-static int mandelbrot_iterations(num_t *a, num_t *b);
+static int mandelbrot_iterations(double ca, double cb);
 
 // -----------------  MAIN  -------------------------------------------------
 
@@ -54,7 +77,6 @@ int main(int argc, char **argv)
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
-    // XXX simplify by making these all static
     struct {
         int  notyet;
     } * vars = pane_cx->vars;
@@ -64,16 +86,12 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     static unsigned int *pixels;
     static int           win_width;
     static int           win_height;
-    static num_t         pixel_size;
-    static num_t         ctr_a;
-    static num_t         ctr_b;
+    static double        pixel_size;
+    static double        ctr_ca;
+    static double        ctr_cb;
+    static double        zoom_factor;
 
-    #define SDL_EVENT_ZOOM     (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 1)
-
-#define INITIAL_CTR_A  -0.75
-#define INITIAL_CTR_B  0.0
-#define INITIAL_PIXEL_SIZE  (3. / pane->w)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -86,19 +104,14 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         sdl_get_window_size(&w, &h);
 
-        texture    = NULL;
-        pixels     = NULL;
-        win_width  = w;
-        win_height = h;
-#if 0
-        pixel_size = INITIAL_PIXEL_SIZE;
-        ctr_a      = INITIAL_CTR_A;
-        ctr_b      = INITIAL_CTR_B;
-#else
-        num_init_from_double(&pixel_size, INITIAL_PIXEL_SIZE);
-        num_init_from_double(&ctr_a, INITIAL_CTR_A);
-        num_init_from_double(&ctr_b, INITIAL_CTR_B);
-#endif
+        texture     = NULL;
+        pixels      = NULL;
+        win_width   = w;
+        win_height  = h;
+        pixel_size  = INITIAL_PIXEL_SIZE;
+        ctr_ca      = INITIAL_CTR_CA;
+        ctr_cb      = INITIAL_CTR_CB;
+        zoom_factor = 1;
 
         INFO("PANE x,y,w,h  %d %d %d %d\n",
             pane->x, pane->y, pane->w, pane->h);
@@ -111,14 +124,16 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        int curr_texture_width, curr_texture_height;
-        int curr_win_width, curr_win_height;
+        int    curr_texture_width, curr_texture_height;
+        int    curr_win_width, curr_win_height;
+        int    pixidx=0, pixel_x, pixel_y, its;
+        double ca, cb;
 
         // if window size has changed then update the pane's 
         // location within the window
         sdl_get_window_size(&curr_win_width, &curr_win_height);
         if (curr_win_width != win_width || curr_win_height != win_height) {
-            INFO("XXX NEW WIN SIZE %d %d\n", curr_win_width, curr_win_height);
+            INFO("NEW WIN SIZE %d %d\n", curr_win_width, curr_win_height);
             sdl_pane_update(pane_cx, 0, 0, curr_win_width, curr_win_height);
             win_width = curr_win_width;
             win_height = curr_win_height;
@@ -131,54 +146,20 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             ((sdl_query_texture(texture, &curr_texture_width, &curr_texture_height), true) &&
              (curr_texture_width != pane->w || curr_texture_height != pane->h)))
         {
+            INFO("ALLOCATING TEXTURE AND PIXELS\n");
             sdl_destroy_texture(texture);
             free(pixels);
-
-            INFO("ALLOCATING TEXTURE AND PIXELS\n");
             texture = sdl_create_texture(pane->w, pane->h);
             pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
         }
 
-        // xxx test code
-        //pixels[i] =  (0 << 0) | (255 << 8) | (  0 << 16) | (255 << 24);
-
-
         // comment and clean up
-        int pixel_x_ctr = pane->w / 2;
-        int pixel_y_ctr = pane->h / 2;
-        int its, xxx=0, pixel_x, pixel_y;
-        num_t num_a,num_b;
-
-        #define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
-        #define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
-
         for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
             for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
-#if 0
-                double a, b;
-                a = ctr_a + (pixel_x - pixel_x_ctr) * pixel_size;
-                b = ctr_b - (pixel_y - pixel_y_ctr) * pixel_size;
-                num_init_from_double(&num_a, a);  // XXX
-                num_init_from_double(&num_b, b);
-#else
-                // xxx comment
-                num_multiply2(&num_a, &pixel_size, (pixel_x - pixel_x_ctr));
-                num_add(&num_a, &num_a, &ctr_a);
-                num_multiply2(&num_b, &pixel_size, (pixel_y - pixel_y_ctr));
-char s[200];
-                if (pixel_y==pixel_y_ctr-1 && pixel_x==pixel_x_ctr) 
-                    INFO("   step1 B = %s\n", num_to_str(s,&num_b));
-                num_add(&num_b, &num_b, &ctr_b);
-                if (pixel_y==pixel_y_ctr-1 && pixel_x==pixel_x_ctr) 
-                    INFO("   step2 B = %s\n", num_to_str(s,&num_b));
-#endif
-                if (pixel_y==pixel_y_ctr-1 && pixel_x==pixel_x_ctr) {
-                    char s[200];
-                    INFO("A = %s\n", num_to_str(s,&num_a));
-                    INFO("B = %s\n", num_to_str(s,&num_b));
-                }
-                its = mandelbrot_iterations(&num_a, &num_b);
-                pixels[xxx++] = (its >= MAX_ITER ? PIXEL_BLACK : PIXEL_WHITE);
+                ca = ctr_ca + (pixel_x - pane->w/2) * pixel_size;
+                cb = ctr_cb - (pixel_y - pane->h/2) * pixel_size;
+                its = mandelbrot_iterations(ca, cb);
+                pixels[pixidx++] = (its >= MAX_ITER ? PIXEL_BLACK : PIXEL_WHITE);
             }
         }
         sdl_update_texture(texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
@@ -186,16 +167,12 @@ char s[200];
         // render the texture
         sdl_render_texture(pane, 0, 0, texture);
 
-#if 1
-        // xxx debug
+        // debug
         static int count;
-        sdl_render_printf(pane, 0, 0, 20, WHITE, BLACK, "** %6d **", count++);
-        //sdl_render_printf(pane, 0, ROW2Y(1,20), 20, WHITE, BLACK, "** %g **", 
-            //INITIAL_PIXEL_SIZE / pixel_size);
-#endif
+        sdl_render_printf(pane, 0, 0, 20, WHITE, BLACK, "%d %g",
+              count++, zoom_factor);
 
         // register for events
-        sdl_register_event(pane, pane, SDL_EVENT_ZOOM, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
         sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
 
         // return
@@ -206,49 +183,27 @@ char s[200];
     // -------- EVENT --------
     // -----------------------
 
-    // XXX other funcstions needed
-    // - reset pan and zoom
-    // - also display the zoom and pan info
-    // - keep on calculating when idle to get better detail on center
-
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
-        case SDL_EVENT_ZOOM: {
-            num_t zf1, zf2;
-            char s[200];
-
-            num_init_from_double(&zf1, 2);
-            num_init_from_double(&zf2, 0.5);
-
-            if (event->mouse_wheel.delta_y > 0) {
-                //pixel_size /= 2.;
-                num_multiply(&pixel_size, &pixel_size, &zf2);
-            } else if (event->mouse_wheel.delta_y < 0) {
-                //pixel_size *= 2.;
-                num_multiply(&pixel_size, &pixel_size, &zf1);
-            }
-            INFO("ZOOM pixel_size %s\n", num_to_str(s, &pixel_size));
-            break; }
+        case '+':
+            zoom_factor *= ZOOM;
+            pixel_size  /= ZOOM;
+            break;
+        case '-':
+            zoom_factor /= ZOOM;
+            pixel_size  *= ZOOM;
+            break;
         case SDL_EVENT_CENTER: {
-            num_t delta_ctr_a, delta_ctr_b;
-
-            num_multiply2(&delta_ctr_a, &pixel_size, (event->mouse_click.x - (pane->w/2)));
-            num_add(&ctr_a, &ctr_a, &delta_ctr_a);
-
-            num_multiply2(&delta_ctr_b, &pixel_size, (event->mouse_click.y - (pane->h/2)));
-            num_add(&ctr_b, &ctr_b, &delta_ctr_b);
-
-            //ctr_a += (event->mouse_click.x - (pane->w/2)) * pixel_size;
-            //ctr_b -= (event->mouse_click.y - (pane->h/2)) * pixel_size;
+            ctr_ca += (event->mouse_click.x - (pane->w/2)) * pixel_size;
+            ctr_cb -= (event->mouse_click.y - (pane->h/2)) * pixel_size;
             break; }
         case 'r':
-            // xxx case 'r' to reset
-            num_init_from_double(&pixel_size, INITIAL_PIXEL_SIZE);
-            num_init_from_double(&ctr_a, INITIAL_CTR_A);
-            num_init_from_double(&ctr_b, INITIAL_CTR_B);
+            pixel_size  = INITIAL_PIXEL_SIZE;
+            ctr_ca      = INITIAL_CTR_CA;
+            ctr_cb      = INITIAL_CTR_CB;
+            zoom_factor = 1;
             break;
         case 'q':
-            // xxx maybe should clean up first
             return PANE_HANDLER_RET_PANE_TERMINATE;
             break;
 
@@ -272,15 +227,12 @@ char s[200];
 
 // -----------------  MANDELBROT  ---------------------------------------
 
-// XXX need other version for bignum
-// XXX pass in a or b
-// XXX don't use complex
-
-static int mandelbrot_iterations(num_t *a, num_t *b)
+static int mandelbrot_iterations(double ca, double cb)
 {
     complex z = 0;
-    complex c = num_to_double(a) + num_to_double(b)*I;
-    int i;
+    complex c = ca + cb*I;
+    double  abs_za, abs_zb;
+    int     i;
 
     for (i = 0; i < MAX_ITER; i++) {
         if (i == 0) {
@@ -288,24 +240,17 @@ static int mandelbrot_iterations(num_t *a, num_t *b)
         } else {
             z = z * z + c;
         }
-#if 0
-        if (cabsl(z) >= 2) {
-            break;
-        }
-#else
-        // XXX verify this is really better
-        double abs_a = fabs(creall(z));
-        double abs_b = fabs(cimagl(z));
-        if (abs_a < M_SQRT2 && abs_b < M_SQRT2) {
+
+        abs_za = fabs(creal(z));
+        abs_zb = fabs(cimag(z));
+        if (abs_za < M_SQRT2 && abs_zb < M_SQRT2) {
             continue;
-        } else if (abs_a >= 2 || abs_b >= 2) {
+        } else if (abs_za >= 2 || abs_zb >= 2) {
             break;
-        } else if (abs_a*abs_a + abs_b*abs_b > 4) {
+        } else if (abs_za*abs_za + abs_zb*abs_zb > 4) {
             break;
         }
-#endif
     }
 
     return i;
 }
-
