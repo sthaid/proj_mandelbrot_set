@@ -64,7 +64,7 @@
 #define INITIAL_PIXEL_SIZE  (4. / pane->w)
 #endif
 
-#define MAX_ITER 1000
+#define MBSVAL_IN_SET 1000
 
 #define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
 #define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
@@ -73,14 +73,36 @@
 #define ZOOM 2.0
 
 //
+// typedefs
+//
+
+typedef struct {
+    int x;
+    int y;
+    int dir;
+    int cnt;
+    int maxcnt;
+} spiral_t;
+
+struct {
+    short    mbsval[2000][2000];
+    double   ctr_ca;  // XXX use complex
+    double   ctr_cb;
+    double   pixel_size;
+    long     thread_request;
+} cache;
+
+//
 // prototypes
 //
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
 static int mandelbrot_set(double ca, double cb);
 void cache_init(double ctr_ca, double ctr_cb, double pixel_size);
-int cache_get(double ca, double cb);
+int cache_get(int idx_x, int idx_y);
 void cache_change_ctr(double ctr_ca, double ctr_cb);
+void *cache_thread(void *cx);
+void get_next_spiral_loc(spiral_t *s);
 
 // -----------------  MAIN  -------------------------------------------------
 
@@ -169,8 +191,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     if (request == PANE_HANDLER_REQ_RENDER) {
         int    curr_texture_width, curr_texture_height;
         int    curr_win_width, curr_win_height;
-        int    pixidx=0, pixel_x, pixel_y, its;
-        double ca, cb;
+        int    pixidx=0, pixel_x, pixel_y, mbsval;
 
         // XXX consider cache_update called here
 
@@ -201,15 +222,13 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         // comment and clean up
         for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
             for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
-                ca = ctr_ca + (pixel_x - pane->w/2) * pixel_size;
-                cb = ctr_cb - (pixel_y - pane->h/2) * pixel_size;
+                // XXX maybe pass pixel in
+                mbsval = cache_get(pixel_x-pane->w/2, pixel_y-pane->h/2);
 
-                its = cache_get(ca, cb);
-
-                if (its == -1) {
+                if (mbsval == -1) {
                     pixels[pixidx++] = PIXEL_BLUE;
                 } else {
-                    pixels[pixidx++] = (its >= MAX_ITER ? PIXEL_BLACK : PIXEL_WHITE);
+                    pixels[pixidx++] = (mbsval == MBSVAL_IN_SET ? PIXEL_BLACK : PIXEL_WHITE);
                 }
             }
         }
@@ -247,9 +266,9 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             zoom_factor /= ZOOM;
             pixel_size  *= ZOOM;
             break;
-        case SDL_EVENT_CENTER: {
+        case SDL_EVENT_CENTER: {  // XXX not working now
             ctr_ca += (event->mouse_click.x - (pane->w/2)) * pixel_size;
-            ctr_cb -= (event->mouse_click.y - (pane->h/2)) * pixel_size;
+            ctr_cb += (event->mouse_click.y - (pane->h/2)) * pixel_size;
             cache_change_ctr(ctr_ca, ctr_cb);  // xxx  move ?
             break; }
         case 'r':
@@ -283,17 +302,17 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
 // -----------------  MANDELBROT SET EVALUATOR  -------------------------
 
-//XXX its 0-999 means  NOT IN SET
-//    its 1000  means  IN SET
+//XXX mbsval 0-999 means  NOT IN SET
+//    mbsval 1000  means  IN SET
 
 static int mandelbrot_set(double ca, double cb)
 {
     complex z = 0;
     complex c = ca + cb*I;
     double  abs_za, abs_zb;
-    int     i;
+    int     mbsval;
 
-    for (i = 0; i < MAX_ITER; i++) {
+    for (mbsval = 0; mbsval < MBSVAL_IN_SET; mbsval++) {
         z = z * z + c;
 
         abs_za = fabs(creal(z));
@@ -307,7 +326,7 @@ static int mandelbrot_set(double ca, double cb)
         }
     }
 
-    return i;
+    return mbsval;
 }
 
 // -----------------  MANDELBROT SET CACHED RESULTS  --------------------
@@ -315,30 +334,13 @@ static int mandelbrot_set(double ca, double cb)
 // XXX nearbyint here and in other places where this is being done
 // XXX also support multiple threads
 
-typedef struct {
-    int x;
-    int y;
-    int dir;
-    int cnt;
-    int maxcnt;
-} spiral_t;
 
-struct {
-    short    its[2000][2000];  //XXX name   XXX defne for 2000
-    double   ctr_ca;  // XXX use complex
-    double   ctr_cb;
-    double   pixel_size;
-    long     thread_request;
-} cache;
-
-void *cache_thread(void *cx);
-void get_next_spiral_loc(spiral_t *s);
 
 void cache_init(double ctr_ca, double ctr_cb, double pixel_size)
 {
     pthread_t id;
 
-    memset(cache.its,0xff,sizeof(cache.its));
+    memset(cache.mbsval,0xff,sizeof(cache.mbsval));
     cache.ctr_ca = ctr_ca;
     cache.ctr_cb = ctr_cb;
     cache.pixel_size = pixel_size;
@@ -347,20 +349,10 @@ void cache_init(double ctr_ca, double ctr_cb, double pixel_size)
 }
 
 // returns -1 : no value
-//        else mandelbort its
-int cache_get(double ca, double cb)
+//        else mandelbort mbsval
+int cache_get(int idx_x, int idx_y)
 {
-    int idx_x, idx_y;
-
-    // XXX                      v try not to divide
-    idx_x = (ca - cache.ctr_ca) / cache.pixel_size + 1000;
-    idx_y = (cb - cache.ctr_cb) / cache.pixel_size + 1000;
-
-    if ((idx_x < 0 || idx_x >= 2000) || (idx_y < 0 || idx_y >= 2000)) {
-        return -1;
-    }
-
-    return cache.its[idx_y][idx_x];
+    return cache.mbsval[idx_y+1000][idx_x+1000];
 }
 
 void *cache_thread(void *cx)
@@ -396,10 +388,10 @@ void *cache_thread(void *cx)
                 break;
             }
 
-            if (cache.its[idx_y][idx_x] == -1) {
+            if (cache.mbsval[idx_y][idx_x] == -1) {
                 double ca = (idx_x-1000) * cache.pixel_size + cache.ctr_ca;
                 double cb = (idx_y-1000) * cache.pixel_size + cache.ctr_cb;
-                cache.its[idx_y][idx_x] = mandelbrot_set(ca, cb);
+                cache.mbsval[idx_y][idx_x] = mandelbrot_set(ca, cb);
                 cnt++;
             }
 
@@ -419,7 +411,7 @@ void *cache_thread(void *cx)
 
 void cache_change_ctr(double ctr_ca, double ctr_cb)
 {
-    short new_its[2000][2000];
+    short new_mbsval[2000][2000];
     int old_x, old_y, new_x, new_y, delta_x, delta_y;
 
     // XXX request thread abort, and wait for that
@@ -430,19 +422,19 @@ void cache_change_ctr(double ctr_ca, double ctr_cb)
     INFO("%d %d\n",  delta_x, delta_y);
 
     // XXX this can be improved
-    memset(new_its,0xff,sizeof(new_its));
+    memset(new_mbsval,0xff,sizeof(new_mbsval));
     for (old_x = 0; old_x < 2000; old_x++) {
         new_x = old_x - delta_x;
         if (new_x < 0 || new_x >= 2000) continue;
         for (old_y = 0; old_y < 2000; old_y++) {
             new_y = old_y - delta_y;
             if (new_y < 0 || new_y >= 2000) continue;
-            new_its[new_y][new_x] = cache.its[old_y][old_x];
+            new_mbsval[new_y][new_x] = cache.mbsval[old_y][old_x];
         }
     }
 
     // update cache
-    memcpy(cache.its, new_its, sizeof(new_its));
+    memcpy(cache.mbsval, new_mbsval, sizeof(new_mbsval));
     cache.ctr_ca = ctr_ca;
     cache.ctr_cb = ctr_cb;
     __sync_synchronize();
@@ -452,7 +444,8 @@ void cache_change_ctr(double ctr_ca, double ctr_cb)
     __sync_synchronize();
 }
 
-// XXX differnet section
+// -----------------  XXXXXXXXXXXXXXXXXXXXXXXXXXXXX  --------------------
+
 void get_next_spiral_loc(spiral_t *s)
 {
     #define DIR_RIGHT  0
@@ -468,8 +461,7 @@ void get_next_spiral_loc(spiral_t *s)
         case DIR_DOWN:   s->y--; break;
         case DIR_LEFT:   s->x--; break;
         case DIR_UP:     s->y++; break;
-        // XXX           vvvvv
-        default:         printf("ERROR: dir=%d\n", s->dir);  exit(1); break;
+        default:         FATAL("invalid dir %d\n", s->dir); break;
         }
 
         s->cnt++;
