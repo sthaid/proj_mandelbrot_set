@@ -2,7 +2,10 @@ TARGETS = mbs
 
 CC = gcc
 OUTPUT_OPTION=-MMD -MP -o $@
-CFLAGS = -Wall -g -O2 -Iutil -I.
+#CFLAGS = -Wall -g -O2 -Iutil -I.
+CFLAGS = -Wall -g     -Iutil -I.
+
+# ^^^ O2
 
 util/util_sdl.o: CFLAGS += $(shell sdl2-config --cflags)
 
@@ -21,7 +24,7 @@ DEP = $(SRC_MBS:.c=.d)
 all: $(TARGETS)
 
 mbs: $(SRC_MBS:.c=.o)
-	$(CC) -lm -ljpeg -lpng -lSDL2 -lSDL2_ttf -lSDL2_mixer \
+	$(CC) -lpthread -lm -ljpeg -lpng -lSDL2 -lSDL2_ttf -lSDL2_mixer \
               -o $@ $(SRC_MBS:.c=.o)
 
 -include $(DEP)
