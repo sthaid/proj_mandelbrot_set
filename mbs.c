@@ -1,16 +1,31 @@
-// XXX
-// - make zoom double
+// XXX NEXT
+// - search for and cleanup AAA, XXX xxx
+// - complete review
+
+// XXX  how to speed up
+// - integer math
+// - don't use 2000x2000
+// - multiple threads
+
+// XXX general improvements
+// - window resize
+// - colors
+// - zoom using textures,  zoom vars need to be doulbe to do this
+// - command to save location and the mbsvalues 
+
+// XXX deeper search
+// - long double
+
+// XXX general cleanup
 // - use nearbyint where needed
-// - try support multiple threads  ??
 // - put the cache code in other file
+// - review util/util_sdl.c history
+// - add debug prints
 
-// review util/util_sdl.c history
+// XXX debug 
+// - display stats either in window or in terminal
+//   if in window should have a control to enable or disable
 
-// AAA debug prints
-
-// AAA
-// - adjust the 2000, make it smaller?
-// - try long double in mandelbrot set routine
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -29,8 +44,14 @@
 // defines
 //
 
+// AAA make it dynamic resizeable
+#if 1
 #define DEFAULT_WIN_WIDTH  800
 #define DEFAULT_WIN_HEIGHT 800
+#else   // XXX try to get resizing to work this way first
+#define DEFAULT_WIN_WIDTH  1600
+#define DEFAULT_WIN_HEIGHT 800
+#endif
 
 #define INITIAL_CTR         (-0.75 + 0.0*I)
 #define INITIAL_ZOOM        (0)
@@ -238,7 +259,11 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
 static int mandelbrot_set(complex c)
 {
+#if 0
     complex z = 0;
+#else
+    long double complex z = 0;   // AAA make a define to make it easy to switch between these,  and all the associated routiens
+#endif
     double  abs_za, abs_zb;
     int     mbsval;
 
@@ -385,6 +410,8 @@ void cache_adjust_mbsval_ctr(int zoom)
     delta_y = nearbyint((cimag(cache_ptr->ctr) - cimag(cache_ctr)) / pixel_size);
     INFO("%d %d  zoom=%d\n",  delta_x, delta_y, zoom);
 
+    // AAA if these are near zero then don't do it
+
     new_mbsval = malloc(2000*2000*2);
     old_mbsval = cache[zoom].mbsval;
 
@@ -400,7 +427,7 @@ void cache_adjust_mbsval_ctr(int zoom)
             continue;
         }
 
-        // XXX temp
+        // XXX temp AAA further optimize, to not do this memset
         memset(&(*new_mbsval)[new_y][0], 0xff, 2000*2);
         if (delta_x <= 0) {
             memcpy(&(*new_mbsval)[new_y][0],
@@ -435,17 +462,15 @@ void cache_thread_issue_request(int req)
 }
 
 // AAA are requests working properly?
-
-// AAA put prints in here, including debug_cnt
+// AAA put prints in here
 void *cache_thread(void *cx)
 {
-    int        n, idx_a, idx_b, zoom, debug_cnt[3];
+    int        n, idx_a, idx_b, zoom;
     double     pixel_size;
     spiral_t   spiral;
     cache_t  * cache_ptr;
 
     while (true) {
-restart:
         //xxx temp
         debug_zoom = -1;
 
@@ -476,7 +501,6 @@ restart:
         INFO("cache thread is starting\n");
 
         // xxx comment
-        memset(debug_cnt, 0, sizeof(debug_cnt));
         for (n = 0; n < MAX_ZOOM; n++) {
             zoom = (cache_zoom + n) % MAX_ZOOM;
             __sync_synchronize();
@@ -505,16 +529,18 @@ restart:
 //AAA  check this
                     complex c = (((idx_a-1000) * pixel_size) - ((idx_b-1000) * pixel_size) * I) + cache_ctr;
                     (*cache_ptr->mbsval)[idx_b][idx_a] = mandelbrot_set(c);
-                    debug_cnt[n]++;
                 }
 
                 __sync_synchronize();  // xxx doing this too often?
                 if (cache_thread_request == CACHE_THREAD_REQUEST_STOP) {
                     INFO("BEING STOPPED AAA print count\n");
-                    cache_thread_request = CACHE_THREAD_REQUEST_NONE;
-                    __sync_synchronize();
-                    goto restart;
+                    break;
                 }
+            }
+            if (cache_thread_request == CACHE_THREAD_REQUEST_STOP) {
+                cache_thread_request = CACHE_THREAD_REQUEST_NONE;
+                __sync_synchronize();
+                break;
             }
         }
     }

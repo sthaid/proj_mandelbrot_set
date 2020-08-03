@@ -2,8 +2,8 @@ TARGETS = mbs
 
 CC = gcc
 OUTPUT_OPTION=-MMD -MP -o $@
-#CFLAGS = -Wall -g -O2 -Iutil -I.
-CFLAGS = -Wall -g     -Iutil -I.
+CFLAGS = -Wall -g -O2 -Iutil -I.
+#CFLAGS = -Wall -g     -Iutil -I.
 
 # ^^^ O2
 
