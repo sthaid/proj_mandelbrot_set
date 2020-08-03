@@ -1,37 +1,16 @@
+// XXX
+// - make zoom double
+// - use nearbyint where needed
+// - try support multiple threads  ??
+// - put the cache code in other file
 
-// XXX define controls
-//   ZOOM: + / - zoom,  AND MAYBE mouse wheel is zoom
-//   PAN:  left click is pan   AND arrows are pan
-//   CENTER ON MOUSE:  right click center
-//   'r' reset
-// MAYBE
-//   esc is undo pan or zoom
+// review util/util_sdl.c history
 
-// XXX optimize performance
-// - multiple threads, but this may not help, but define a number of threads
-// - save values and migrate them to new save array when zoom changes
-//    - save at twice the current resolution (pixel_size)
-// - the render code need not wait for all the values to be ready, display a unique color if not ready
-// - the threads(s) can spiral outward
-// - can we more quickly stop iterating if we are sure early that we're in the mandelbrot set
-// - print performance metric to terminal
+// AAA debug prints
 
-// XXX colors
-
-// XXX optimize depth
-// - conditionally use double vs long double
-
-// XXX Misc
-// - INITIAL_PIXEL_SIZE macro use of pane->w
-// - maybe center initial sizeos around +/-2
-// - display status in terminal and not in window
-// - control to click and either zoom in,out or none
-// - how to have a control to center vs pan
-
-// XXX Other features 
-// - bookmark favorite locations, including zoom level, and possiley the cache too
-
-// XXX enable resizeable later
+// AAA
+// - adjust the 2000, make it smaller?
+// - try long double in mandelbrot set routine
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -53,56 +32,42 @@
 #define DEFAULT_WIN_WIDTH  800
 #define DEFAULT_WIN_HEIGHT 800
 
-// XXX fix this
-#if 1
-#define INITIAL_CTR_CA       -0.75
-#define INITIAL_CTR_CB       0.0
-#define INITIAL_PIXEL_SIZE  (3. / pane->w)
-#else
-#define INITIAL_CTR_CA       0.0
-#define INITIAL_CTR_CB       0.0
-#define INITIAL_PIXEL_SIZE  (4. / pane->w)
-#endif
+#define INITIAL_CTR         (-0.75 + 0.0*I)
+#define INITIAL_ZOOM        (0)
+#define PIXEL_SIZE_AT_ZOOM0 (3./DEFAULT_WIN_WIDTH)
 
-#define MBSVAL_IN_SET 1000
+#define MBSVAL_IN_SET   1000
+#define MBSVAL_NOT_COMPUTED  -1
 
 #define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
 #define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
 #define PIXEL_BLUE  ((  0 << 0) | (  0 << 8) | (255 << 16) | (255 << 24))
 
-#define ZOOM 2.0
+#define MAX_ZOOM 50  //xxx temp
 
 //
 // typedefs
 //
 
-typedef struct {
-    int x;
-    int y;
-    int dir;
-    int cnt;
-    int maxcnt;
-} spiral_t;
 
-struct {
-    short    mbsval[2000][2000];
-    double   ctr_ca;  // XXX use complex
-    double   ctr_cb;
-    double   pixel_size;
-    long     thread_request;
-} cache;
+//
+// variables
+//
+
+int debug_zoom; //AAA  temp
 
 //
 // prototypes
+// xxx check these
 //
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
-static int mandelbrot_set(double ca, double cb);
-void cache_init(double ctr_ca, double ctr_cb, double pixel_size);
-int cache_get(int idx_x, int idx_y);
-void cache_change_ctr(double ctr_ca, double ctr_cb);
-void *cache_thread(void *cx);
-void get_next_spiral_loc(spiral_t *s);
+
+static int mandelbrot_set(complex c);
+
+void cache_init(complex ctr, int zoom);
+void cache_get_mbsval(short *mbsval);
+void cache_set_ctr_and_zoom(complex ctr, int zoom);
 
 // -----------------  MAIN  -------------------------------------------------
 
@@ -118,9 +83,9 @@ int main(int argc, char **argv)
     }
     INFO("REQUESTED win_width=%d win_height=%d\n", DEFAULT_WIN_WIDTH, DEFAULT_WIN_HEIGHT);
     INFO("ACTUAL    win_width=%d win_height=%d\n", win_width, win_height);
-    // XXX for now exit if size is different
+    // xxx for now exit if size is different
 
-    // run the pane manger
+    // run the pane manger xxx what does this do
     sdl_pane_manager(
         NULL,           // context
         NULL,           // called prior to pane handlers
@@ -138,48 +103,31 @@ int main(int argc, char **argv)
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
     struct {
-        int  notyet;
+        texture_t     texture;
+        unsigned int *pixels;
+        complex       lcl_ctr;
+        int           lcl_zoom;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
-    static texture_t     texture;
-    static unsigned int *pixels;
-    static int           win_width;
-    static int           win_height;
-    static double        pixel_size;
-    static double        ctr_ca;
-    static double        ctr_cb;
-    static double        zoom_factor;
-
     #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_PAN      (SDL_EVENT_USER_DEFINED + 1)
-
 
     // ----------------------------
     // -------- INITIALIZE --------
     // ----------------------------
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
-        int w, h;
+        INFO("PANE x,y,w,h  %d %d %d %d\n", pane->x, pane->y, pane->w, pane->h);
 
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
 
-        sdl_get_window_size(&w, &h);
+        vars->texture  = sdl_create_texture(pane->w, pane->h);
+        vars->pixels   = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
+        vars->lcl_ctr  = INITIAL_CTR;
+        vars->lcl_zoom = INITIAL_ZOOM;
 
-        texture     = NULL;
-        pixels      = NULL;
-        win_width   = w;
-        win_height  = h;
-        pixel_size  = INITIAL_PIXEL_SIZE;
-        ctr_ca      = INITIAL_CTR_CA;
-        ctr_cb      = INITIAL_CTR_CB;
-        zoom_factor = 1;
-
-        // XXX  where should this be called from
-        cache_init(ctr_ca, ctr_cb, pixel_size);
-
-        INFO("PANE x,y,w,h  %d %d %d %d\n",
-            pane->x, pane->y, pane->w, pane->h);
+        cache_init(vars->lcl_ctr, vars->lcl_zoom);
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -189,58 +137,40 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
-        int    curr_texture_width, curr_texture_height;
-        int    curr_win_width, curr_win_height;
-        int    pixidx=0, pixel_x, pixel_y, mbsval;
+        int            idx = 0, pixel_x, pixel_y;
+        unsigned int * pixels = vars->pixels;
+        short          mbsval[800*800];
 
-        // XXX consider cache_update called here
+        // debug
+        static unsigned long time_last;
+        unsigned long time_now = microsec_timer();
+        unsigned long delta_us = time_now - time_last;
+        time_last = time_now;
+        INFO("*******************************************  %ld ms\n", delta_us/1000);
 
-        // if window size has changed then update the pane's 
-        // location within the window
-        sdl_get_window_size(&curr_win_width, &curr_win_height);
-        if (curr_win_width != win_width || curr_win_height != win_height) {
-            INFO("NEW WIN SIZE %d %d\n", curr_win_width, curr_win_height);
-            sdl_pane_update(pane_cx, 0, 0, curr_win_width, curr_win_height);
-            win_width = curr_win_width;
-            win_height = curr_win_height;
-        }
+        // inform mandelbrot set cache of the current ctr and zoom
+        cache_set_ctr_and_zoom(vars->lcl_ctr, vars->lcl_zoom);
 
-        // if the texture hasn't been allocated yet, or the size of the
-        // texture doesn't match the size of the pane then
-        // re-allocate the texture and the pixels array
-        if ((texture == NULL) || 
-            ((sdl_query_texture(texture, &curr_texture_width, &curr_texture_height), true) &&
-             (curr_texture_width != pane->w || curr_texture_height != pane->h)))
-        {
-            INFO("ALLOCATING TEXTURE AND PIXELS\n");
-            sdl_destroy_texture(texture);
-            free(pixels);
-            texture = sdl_create_texture(pane->w, pane->h);
-            pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
-        }
-
-        // comment and clean up
+        // get the cached mandelbrot set values; and
+        // convert them to pixel color values
+        cache_get_mbsval(mbsval);
         for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
             for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
-                // XXX maybe pass pixel in
-                mbsval = cache_get(pixel_x-pane->w/2, pixel_y-pane->h/2);
-
-                if (mbsval == -1) {
-                    pixels[pixidx++] = PIXEL_BLUE;
-                } else {
-                    pixels[pixidx++] = (mbsval == MBSVAL_IN_SET ? PIXEL_BLACK : PIXEL_WHITE);
-                }
+                pixels[idx] = (mbsval[idx] == MBSVAL_NOT_COMPUTED ? PIXEL_BLUE  :
+                               mbsval[idx] == MBSVAL_IN_SET  ? PIXEL_BLACK :
+                                                               PIXEL_WHITE);
+                idx++;
             }
         }
-        sdl_update_texture(texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
 
-        // render the texture
-        sdl_render_texture(pane, 0, 0, texture);
+        // copy the pixels to the texture and render the texture
+        sdl_update_texture(vars->texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
+        sdl_render_texture(pane, 0, 0, vars->texture);
 
         // debug
         static int count;
-        sdl_render_printf(pane, 0, 0, 20, WHITE, BLACK, "%d %g",
-              count++, zoom_factor);
+        sdl_render_printf(pane, 0, 0, 20, WHITE, BLACK, "%d %d %d",
+              count++, vars->lcl_zoom, debug_zoom);
 
         // register for events
         sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
@@ -256,27 +186,29 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
-        case SDL_EVENT_PAN:
-            break;
-        case '+':
-            zoom_factor *= ZOOM;
-            pixel_size  /= ZOOM;
+        case '+': case '=':
+            if (vars->lcl_zoom < MAX_ZOOM-1) {
+                vars->lcl_zoom++;
+            }
             break;
         case '-':
-            zoom_factor /= ZOOM;
-            pixel_size  *= ZOOM;
+            if (vars->lcl_zoom > 0) {
+                vars->lcl_zoom--;
+            }
             break;
-        case SDL_EVENT_CENTER: {  // XXX not working now
-            ctr_ca += (event->mouse_click.x - (pane->w/2)) * pixel_size;
-            ctr_cb += (event->mouse_click.y - (pane->h/2)) * pixel_size;
-            cache_change_ctr(ctr_ca, ctr_cb);  // xxx  move ?
+        case SDL_EVENT_PAN: {
+            double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-vars->lcl_zoom);
+            vars->lcl_ctr += -(event->mouse_motion.delta_x * pixel_size) + 
+                             -(event->mouse_motion.delta_y * pixel_size) * I;
+            break; }
+        case SDL_EVENT_CENTER: {
+            double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-vars->lcl_zoom);
+            vars->lcl_ctr += ((event->mouse_click.x - (pane->w/2)) * pixel_size) + 
+                             ((event->mouse_click.y - (pane->h/2)) * pixel_size) * I;
             break; }
         case 'r':
-            pixel_size  = INITIAL_PIXEL_SIZE;
-            ctr_ca      = INITIAL_CTR_CA;
-            ctr_cb      = INITIAL_CTR_CB;
-            zoom_factor = 1;
-            cache_change_ctr(ctr_ca, ctr_cb);  // xxx  move ?
+            vars->lcl_ctr  = INITIAL_CTR;
+            vars->lcl_zoom = INITIAL_ZOOM;
             break;
         case 'q':
             return PANE_HANDLER_RET_PANE_TERMINATE;
@@ -291,6 +223,8 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ---------------------------
 
     if (request == PANE_HANDLER_REQ_TERMINATE) {
+        sdl_destroy_texture(vars->texture);
+        free(vars->pixels);
         free(vars);
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -302,13 +236,9 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
 // -----------------  MANDELBROT SET EVALUATOR  -------------------------
 
-//XXX mbsval 0-999 means  NOT IN SET
-//    mbsval 1000  means  IN SET
-
-static int mandelbrot_set(double ca, double cb)
+static int mandelbrot_set(complex c)
 {
     complex z = 0;
-    complex c = ca + cb*I;
     double  abs_za, abs_zb;
     int     mbsval;
 
@@ -331,122 +261,266 @@ static int mandelbrot_set(double ca, double cb)
 
 // -----------------  MANDELBROT SET CACHED RESULTS  --------------------
 
-// XXX nearbyint here and in other places where this is being done
-// XXX also support multiple threads
+// defines
 
+#define CACHE_THREAD_REQUEST_NONE   0
+#define CACHE_THREAD_REQUEST_RUN    1
+#define CACHE_THREAD_REQUEST_STOP   2
 
+// typedefs
 
-void cache_init(double ctr_ca, double ctr_cb, double pixel_size)
+typedef struct {
+    int x;
+    int y;
+    int dir;
+    int cnt;
+    int maxcnt;
+} spiral_t;
+
+typedef struct {
+    short (*mbsval)[2000][2000];
+    complex ctr;
+} cache_t;
+
+// variables
+
+cache_t  cache[MAX_ZOOM];
+int      cache_thread_request;
+complex  cache_ctr;   // xxx review how this is used
+int      cache_zoom;  // xxx    ditto
+
+// prototypes
+
+void cache_adjust_mbsval_ctr(int zoom);
+void cache_thread_issue_request(int req);
+void *cache_thread(void *cx);
+void cache_get_next_spiral_loc(spiral_t *s);
+
+// - - - - - - - - -  API  - - - - - - - - -
+
+// xxx comments
+void cache_init(complex ctr, int zoom)
 {
     pthread_t id;
+    int i;
 
-    memset(cache.mbsval,0xff,sizeof(cache.mbsval));
-    cache.ctr_ca = ctr_ca;
-    cache.ctr_cb = ctr_cb;
-    cache.pixel_size = pixel_size;
+    cache_ctr  = 999. + 0 * I;  // AAA
+    cache_zoom = 0;  // AAA
+
+    for (i = 0; i < MAX_ZOOM; i++) {
+        cache[i].ctr = 999. + 0 * I;
+        cache[i].mbsval = malloc(2000*2000*2);
+        memset(cache[i].mbsval, 0xff, 2000*2000*2);
+    }
 
     pthread_create(&id, NULL, cache_thread, NULL);
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
 }
 
-// returns -1 : no value
-//        else mandelbort mbsval
-int cache_get(int idx_x, int idx_y)
+void cache_get_mbsval(short *mbsval)
 {
-    return cache.mbsval[idx_y+1000][idx_x+1000];
+    int idx_b, idx_b_first, idx_b_last;
+    cache_t *cache_ptr = &cache[cache_zoom];
+
+    idx_b_first =  1000 + 800 / 2;
+    idx_b_last  = idx_b_first - 800 + 1;
+
+    if (cache_ptr->ctr != cache_ctr) {
+        FATAL("cache_zoom=%d cache_ptr->ctr=%lg+%lgI cache_ctr=%lg+%lgI\n",
+              cache_zoom, 
+              creal(cache_ptr->ctr), cimag(cache_ptr->ctr),
+              creal(cache_ctr), cimag(cache_ctr));
+    }
+
+    for (idx_b = idx_b_first; idx_b >= idx_b_last; idx_b--) {
+        memcpy(mbsval, 
+               &(*cache_ptr->mbsval)[idx_b][1000-800/2],
+               800*sizeof(mbsval[0]));
+        mbsval += 800;
+    }
 }
 
+// AAA time the steps in this routine
+void cache_set_ctr_and_zoom(complex ctr, int zoom)
+{
+    INFO("XXX CALLED\n");
+
+    // if neither zoom or ctr has changed then return
+    if (zoom == cache_zoom && ctr == cache_ctr) {
+        return;
+    }
+
+    // stop the cache_thread
+    INFO("XXX STOPPING CACHE THREAD\n");
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
+    INFO("XXX STOPPED CACHE THREAD\n");
+
+    // update cache_ctr and cache_zoom
+    cache_ctr  = ctr;
+    cache_zoom = zoom;
+
+    // xxx
+    INFO("XXX CALLING ADJUST FOR %d\n", cache_zoom);
+    cache_adjust_mbsval_ctr(cache_zoom);
+    INFO("XXX DONE CALLING ADJUST FOR %d\n", cache_zoom);
+
+    // run the cache_thread 
+    INFO("XXX STARTING CACHE THREAD\n");
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
+    INFO("XXX DONE STARTING CACHE THREAD\n");
+}
+
+// - - - - - - - - -  PRIVATE  - - - - - - -
+
+// AAA this routine needs cleanup and optimize
+void cache_adjust_mbsval_ctr(int zoom)
+{
+    cache_t *cache_ptr = &cache[zoom];
+    int old_y, new_y, delta_x, delta_y;
+    double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
+    short (*new_mbsval)[2000][2000];
+    short (*old_mbsval)[2000][2000];
+
+    delta_x = nearbyint((creal(cache_ptr->ctr) - creal(cache_ctr)) / pixel_size);
+    delta_y = nearbyint((cimag(cache_ptr->ctr) - cimag(cache_ctr)) / pixel_size);
+    INFO("%d %d  zoom=%d\n",  delta_x, delta_y, zoom);
+
+    new_mbsval = malloc(2000*2000*2);
+    old_mbsval = cache[zoom].mbsval;
+
+    for (new_y = 0; new_y < 2000; new_y++) {
+        old_y = new_y + delta_y;
+        if (old_y < 0 || old_y >= 2000) {
+            memset(&(*new_mbsval)[new_y][0], 0xff, 2000*2);
+            continue;
+        }
+
+        if (delta_x <= -2000 || delta_x >= 2000) {
+            memset(&(*new_mbsval)[new_y][0], 0xff, 2000*2);
+            continue;
+        }
+
+        // XXX temp
+        memset(&(*new_mbsval)[new_y][0], 0xff, 2000*2);
+        if (delta_x <= 0) {
+            memcpy(&(*new_mbsval)[new_y][0],
+                   &(*old_mbsval)[old_y][-delta_x],
+                   (2000 + delta_x) * 2);
+        } else {
+            memcpy(&(*new_mbsval)[new_y][delta_x],
+                   &(*old_mbsval)[old_y][0],
+                   (2000 - delta_x) * 2);
+        }
+    }
+
+    free(cache_ptr->mbsval);
+    cache_ptr->mbsval = new_mbsval;
+    cache_ptr->ctr = cache_ctr;
+}
+
+void cache_thread_issue_request(int req)
+{
+    // xxx comments
+    __sync_synchronize();
+
+    // xxx comments
+    cache_thread_request = req;
+    __sync_synchronize();
+
+    // xxx comments
+    while (cache_thread_request != CACHE_THREAD_REQUEST_NONE) {
+        //usleep(1000);
+        __sync_synchronize();
+    }
+}
+
+// AAA are requests working properly?
+
+// AAA put prints in here, including debug_cnt
 void *cache_thread(void *cx)
 {
-    long last_completed_request = -1;
-    long current_request;
-    spiral_t spiral;
-    int idx_x, idx_y;
+    int        n, idx_a, idx_b, zoom, debug_cnt[3];
+    double     pixel_size;
+    spiral_t   spiral;
+    cache_t  * cache_ptr;
 
     while (true) {
-        // wait for work to do
-        while ((current_request = cache.thread_request) == last_completed_request) {
-            usleep(1000);
+restart:
+        //xxx temp
+        debug_zoom = -1;
+
+        // state is now idle;
+        // wait here for a request
+        while (cache_thread_request == CACHE_THREAD_REQUEST_NONE) {
+            //usleep(1000);
+            __sync_synchronize();
         }
-        INFO("STARTING\n");
+        INFO("  got request %d\n", cache_thread_request);
 
-        // spiral out from center of cache, filling in mandelbrot
-        // set iteration results for cache elements that don't have 
-        // them compute the mandelbrot set iteration result and save
-        // that value in the cache
-
-        // XXX locking considerations when cache ctr or pixelsize is adjusted
-
-        static int cnt=0;
-        memset(&spiral, 0, sizeof(spiral_t));
-        while (true) {
-            // move to next location in spiral
-            get_next_spiral_loc(&spiral);
-
-            idx_x = spiral.x + 1000;
-            idx_y = spiral.y + 1000;
-            if (idx_x < 0 || idx_x >= 2000 || idx_y < 0 || idx_y >= 2000) {
-                break;
-            }
-
-            if (cache.mbsval[idx_y][idx_x] == -1) {
-                double ca = (idx_x-1000) * cache.pixel_size + cache.ctr_ca;
-                double cb = (idx_y-1000) * cache.pixel_size + cache.ctr_cb;
-                cache.mbsval[idx_y][idx_x] = mandelbrot_set(ca, cb);
-                cnt++;
-            }
-
-#if 0
-            periodically drop mutex, yield and re acquire
-            if (cache.thread_request != current_request) { 
-                break;
-            }
-#endif
-
+        // if received stop request then 
+        // ack the request and remain idle
+        if (cache_thread_request == CACHE_THREAD_REQUEST_STOP) {
+            cache_thread_request = CACHE_THREAD_REQUEST_NONE;
+            __sync_synchronize();
+            continue;
         }
-        INFO("DONE cnt=%d\n", cnt);
-        
-        last_completed_request = current_request;
+
+        // the request must be a run request;
+        // set state to running and ack the request
+        if (cache_thread_request != CACHE_THREAD_REQUEST_RUN) {
+            FATAL("invalid cache_thread_request %d\n", cache_thread_request);
+        }
+        cache_thread_request = CACHE_THREAD_REQUEST_NONE;
+        __sync_synchronize();
+
+        INFO("cache thread is starting\n");
+
+        // xxx comment
+        memset(debug_cnt, 0, sizeof(debug_cnt));
+        for (n = 0; n < MAX_ZOOM; n++) {
+            zoom = (cache_zoom + n) % MAX_ZOOM;
+            __sync_synchronize();
+            if (zoom < 0 || zoom >= MAX_ZOOM) {  //AAA not needed
+                continue;
+            }
+            debug_zoom = zoom; //AAA
+
+            pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
+            cache_ptr = &cache[zoom];
+
+            // AAA
+            cache_adjust_mbsval_ctr(zoom);
+
+            memset(&spiral, 0, sizeof(spiral_t));
+            while (true) {
+                cache_get_next_spiral_loc(&spiral);
+
+                idx_a = spiral.x + 1000;
+                idx_b = spiral.y + 1000;
+                if (idx_a < 0 || idx_a >= 2000 || idx_b < 0 || idx_b >= 2000) {
+                    break;
+                }
+
+                if ((*cache_ptr->mbsval)[idx_b][idx_a] == MBSVAL_NOT_COMPUTED) {
+//AAA  check this
+                    complex c = (((idx_a-1000) * pixel_size) - ((idx_b-1000) * pixel_size) * I) + cache_ctr;
+                    (*cache_ptr->mbsval)[idx_b][idx_a] = mandelbrot_set(c);
+                    debug_cnt[n]++;
+                }
+
+                __sync_synchronize();  // xxx doing this too often?
+                if (cache_thread_request == CACHE_THREAD_REQUEST_STOP) {
+                    INFO("BEING STOPPED AAA print count\n");
+                    cache_thread_request = CACHE_THREAD_REQUEST_NONE;
+                    __sync_synchronize();
+                    goto restart;
+                }
+            }
+        }
     }
 }
 
-void cache_change_ctr(double ctr_ca, double ctr_cb)
-{
-    short new_mbsval[2000][2000];
-    int old_x, old_y, new_x, new_y, delta_x, delta_y;
-
-    // XXX request thread abort, and wait for that
-
-    // XXX
-    delta_x = nearbyint((ctr_ca - cache.ctr_ca) / cache.pixel_size);
-    delta_y = nearbyint((ctr_cb - cache.ctr_cb) / cache.pixel_size);
-    INFO("%d %d\n",  delta_x, delta_y);
-
-    // XXX this can be improved
-    memset(new_mbsval,0xff,sizeof(new_mbsval));
-    for (old_x = 0; old_x < 2000; old_x++) {
-        new_x = old_x - delta_x;
-        if (new_x < 0 || new_x >= 2000) continue;
-        for (old_y = 0; old_y < 2000; old_y++) {
-            new_y = old_y - delta_y;
-            if (new_y < 0 || new_y >= 2000) continue;
-            new_mbsval[new_y][new_x] = cache.mbsval[old_y][old_x];
-        }
-    }
-
-    // update cache
-    memcpy(cache.mbsval, new_mbsval, sizeof(new_mbsval));
-    cache.ctr_ca = ctr_ca;
-    cache.ctr_cb = ctr_cb;
-    __sync_synchronize();
-
-    // tell thread to run
-    cache.thread_request++;
-    __sync_synchronize();
-}
-
-// -----------------  XXXXXXXXXXXXXXXXXXXXXXXXXXXXX  --------------------
-
-void get_next_spiral_loc(spiral_t *s)
+void cache_get_next_spiral_loc(spiral_t *s)
 {
     #define DIR_RIGHT  0
     #define DIR_DOWN   1
@@ -475,3 +549,64 @@ void get_next_spiral_loc(spiral_t *s)
     }
 }
 
+// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+#if 0
+        // spiral out from center of cache, filling in mandelbrot
+        // set iteration results for cache elements that don't have 
+        // them compute the mandelbrot set iteration result and save
+        // that value in the cache
+        INFO("STARTING\n");
+        int cnt;
+        spiral_t spiral;
+        double pixel_size = 0;  //xxx PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
+        memset(&spiral, 0, sizeof(spiral_t));
+        int idx_x, idx_y;
+
+        // xxx first do this for current level
+        //     then for other levels 
+        //       - if recenter needed then do that
+        //       - calcu mbs val, but first check if it is already available
+
+        cnt = 0;
+        INFO("DONE cnt=%d\n", cnt);
+#endif
+
+#if 0
+void cache_change_ctr(double ctr_ca, double ctr_cb)
+{
+    short new_mbsval[2000][2000];
+    int old_x, old_y, new_x, new_y, delta_x, delta_y;
+
+    // XXX request thread abort, and wait for that
+
+    // XXX  THIS IS actually delta pixels
+    delta_x = nearbyint((ctr_ca - cache.ctr_ca) / cache.pixel_size);
+    delta_y = nearbyint((ctr_cb - cache.ctr_cb) / cache.pixel_size);
+    INFO("%d %d\n",  delta_x, delta_y);
+
+    // XXX this can be improved
+    memset(new_mbsval,0xff,sizeof(new_mbsval));
+    for (old_x = 0; old_x < 2000; old_x++) {
+        new_x = old_x - delta_x;
+        if (new_x < 0 || new_x >= 2000) continue;
+        for (old_y = 0; old_y < 2000; old_y++) {
+            new_y = old_y - delta_y;
+            if (new_y < 0 || new_y >= 2000) continue;
+            new_mbsval[new_y][new_x] = cache.mbsval[old_y][old_x];
+        }
+    }
+
+    // update cache
+    memcpy(cache.mbsval, new_mbsval, sizeof(new_mbsval));
+    cache.ctr_ca = ctr_ca;
+    cache.ctr_cb = ctr_cb;
+    __sync_synchronize();
+
+    // tell thread to run
+    cache.thread_request++;
+    __sync_synchronize();
+}
+#endif
