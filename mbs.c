@@ -1,9 +1,4 @@
-// save point     0.27808593632993183764 -0.47566405952660278933
 // XXX NEXT
-// - long double
-//     - what is the precision
-//         0.3333333333333333 14829616256247    16
-//         0.3333333333333333333 42368351437    19
 
 // - config file
 // - smaller cache size
@@ -23,9 +18,6 @@
 // - zoom using textures,  zoom vars need to be doulbe to do this
 // - command to save location and the mbsvalues 
 
-// XXX deeper search
-// - long double
-
 // XXX general cleanup
 // - use nearbyint where needed
 // - put the cache code in other file
@@ -35,6 +27,12 @@
 // XXX debug 
 // - display stats either in window or in terminal
 //   if in window should have a control to enable or disable
+
+// XXX SAVE INFO
+// - what is the precision
+//   0.3333333333333333 14829616256247    16
+//   0.3333333333333333333 42368351437    19
+// - save point     0.27808593632993183764,-0.47566405952660278933
 
 
 #include <stdio.h>
@@ -262,21 +260,21 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             return PANE_HANDLER_RET_PANE_TERMINATE;
             break;
         case '0' + SDL_EVENT_KEY_CTRL:
-            sprintf(config[0].value, "%0.20Lf,%0.20Lf", creall(vars->lcl_ctr), cimagl(vars->lcl_ctr));
+            sprintf(config[0].value, "%0.20lf,%0.20lf,%d", 
+                    creal(vars->lcl_ctr), cimag(vars->lcl_ctr), vars->lcl_zoom);
             config_write(CONFIG_FILE, config, CONFIG_VERSION);
-            INFO("WROTE '%s'\n", config[0].value);
             break;
         case '0': {
-            long double a,b;
-            int cnt;
-            cnt = sscanf(config[0].value, "%Lf,%Lf", &a, &b);
-            INFO("cnt=%d  '%s'\n", cnt, config[0].value);
-            if (cnt != 2) {
+            double a,b;
+            int cnt, z;
+            cnt = sscanf(config[0].value, "%lf,%lf,%d", &a, &b, &z);
+            if (cnt != 3) {
                 INFO("failed to load savepoint 0\n");
                 break;
             }
-            INFO("setting ctr to %Lf + %Lf I\n", a, b);
+            INFO("setting ctr=%lf + %lf I, zoom=%d\n", a, b, z);
             vars->lcl_ctr = a + b * I;
+            vars->lcl_zoom = z;
             break; }
         }
         return PANE_HANDLER_RET_NO_ACTION;
@@ -302,11 +300,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
 static int mandelbrot_set(complex c)
 {
-#if 0
     complex z = 0;
-#else
-    long double complex z = 0;   // AAA make a define to make it easy to switch between these,  and all the associated routiens
-#endif
     double  abs_za, abs_zb;
     int     mbsval;
 
@@ -569,7 +563,7 @@ void *cache_thread(void *cx)
                 }
 
                 if ((*cache_ptr->mbsval)[idx_b][idx_a] == MBSVAL_NOT_COMPUTED) {
-//AAA  check this
+                    //AAA  check this
                     complex c = (((idx_a-1000) * pixel_size) - ((idx_b-1000) * pixel_size) * I) + cache_ctr;
                     (*cache_ptr->mbsval)[idx_b][idx_a] = mandelbrot_set(c);
                 }
