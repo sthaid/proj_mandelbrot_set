@@ -1,32 +1,34 @@
 // XXX NEXT
-
-// - config file
-// - smaller cache size
+// - zoom using textures
+// - config file - still needs more work 
+//   - generalize code for other save numbers
+//   - use ALT-0 to save the data too
+//      - command to save location and the mbsvalues 
 
 // XXX NEXT
 // - search for and cleanup AAA, XXX xxx
 // - complete review
 
-// XXX  how to speed up
-// - integer math
-// - don't use 2000x2000
-// - multiple threads
-
 // XXX general improvements
 // - window resize
+//   - cache size should track window size, and not be square
 // - colors
 // - zoom using textures,  zoom vars need to be doulbe to do this
-// - command to save location and the mbsvalues 
 
 // XXX general cleanup
 // - use nearbyint where needed
-// - put the cache code in other file
 // - review util/util_sdl.c history
 // - add debug prints
 
 // XXX debug 
 // - display stats either in window or in terminal
 //   if in window should have a control to enable or disable
+
+// XXX MAYBE LATER
+// - how to speed up
+//   - integer math
+//   - multiple threads
+// - put the cache code in other file  ??
 
 // XXX SAVE INFO
 // - what is the precision
@@ -76,6 +78,8 @@
 
 #define CONFIG_FILE "mbs.config"   // xxx path
 #define CONFIG_VERSION 1
+
+#define CACHE_SIZE 1000
 
 //
 // typedefs
@@ -340,7 +344,7 @@ typedef struct {
 } spiral_t;
 
 typedef struct {
-    short (*mbsval)[2000][2000];
+    short (*mbsval)[CACHE_SIZE][CACHE_SIZE];
     complex ctr;
 } cache_t;
 
@@ -371,8 +375,8 @@ void cache_init(complex ctr, int zoom)
 
     for (i = 0; i < MAX_ZOOM; i++) {
         cache[i].ctr = 999. + 0 * I;
-        cache[i].mbsval = malloc(2000*2000*2);
-        memset(cache[i].mbsval, 0xff, 2000*2000*2);
+        cache[i].mbsval = malloc(CACHE_SIZE*CACHE_SIZE*2);
+        memset(cache[i].mbsval, 0xff, CACHE_SIZE*CACHE_SIZE*2);
     }
 
     pthread_create(&id, NULL, cache_thread, NULL);
@@ -384,7 +388,7 @@ void cache_get_mbsval(short *mbsval)
     int idx_b, idx_b_first, idx_b_last;
     cache_t *cache_ptr = &cache[cache_zoom];
 
-    idx_b_first =  1000 + 800 / 2;
+    idx_b_first =  (CACHE_SIZE/2) + 800 / 2;
     idx_b_last  = idx_b_first - 800 + 1;
 
     if (cache_ptr->ctr != cache_ctr) {
@@ -396,7 +400,7 @@ void cache_get_mbsval(short *mbsval)
 
     for (idx_b = idx_b_first; idx_b >= idx_b_last; idx_b--) {
         memcpy(mbsval, 
-               &(*cache_ptr->mbsval)[idx_b][1000-800/2],
+               &(*cache_ptr->mbsval)[idx_b][(CACHE_SIZE/2)-800/2],
                800*sizeof(mbsval[0]));
         mbsval += 800;
     }
@@ -440,8 +444,8 @@ void cache_adjust_mbsval_ctr(int zoom)
     cache_t *cache_ptr = &cache[zoom];
     int old_y, new_y, delta_x, delta_y;
     double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
-    short (*new_mbsval)[2000][2000];
-    short (*old_mbsval)[2000][2000];
+    short (*new_mbsval)[CACHE_SIZE][CACHE_SIZE];
+    short (*old_mbsval)[CACHE_SIZE][CACHE_SIZE];
 
     delta_x = nearbyint((creal(cache_ptr->ctr) - creal(cache_ctr)) / pixel_size);
     delta_y = nearbyint((cimag(cache_ptr->ctr) - cimag(cache_ctr)) / pixel_size);
@@ -449,31 +453,31 @@ void cache_adjust_mbsval_ctr(int zoom)
 
     // AAA if these are near zero then don't do it
 
-    new_mbsval = malloc(2000*2000*2);
+    new_mbsval = malloc(CACHE_SIZE*CACHE_SIZE*2);
     old_mbsval = cache[zoom].mbsval;
 
-    for (new_y = 0; new_y < 2000; new_y++) {
+    for (new_y = 0; new_y < CACHE_SIZE; new_y++) {
         old_y = new_y + delta_y;
-        if (old_y < 0 || old_y >= 2000) {
-            memset(&(*new_mbsval)[new_y][0], 0xff, 2000*2);
+        if (old_y < 0 || old_y >= CACHE_SIZE) {
+            memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_SIZE*2);
             continue;
         }
 
-        if (delta_x <= -2000 || delta_x >= 2000) {
-            memset(&(*new_mbsval)[new_y][0], 0xff, 2000*2);
+        if (delta_x <= -CACHE_SIZE || delta_x >= CACHE_SIZE) {
+            memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_SIZE*2);
             continue;
         }
 
         // XXX temp AAA further optimize, to not do this memset
-        memset(&(*new_mbsval)[new_y][0], 0xff, 2000*2);
+        memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_SIZE*2);
         if (delta_x <= 0) {
             memcpy(&(*new_mbsval)[new_y][0],
                    &(*old_mbsval)[old_y][-delta_x],
-                   (2000 + delta_x) * 2);
+                   (CACHE_SIZE + delta_x) * 2);
         } else {
             memcpy(&(*new_mbsval)[new_y][delta_x],
                    &(*old_mbsval)[old_y][0],
-                   (2000 - delta_x) * 2);
+                   (CACHE_SIZE - delta_x) * 2);
         }
     }
 
@@ -493,7 +497,7 @@ void cache_thread_issue_request(int req)
 
     // xxx comments
     while (cache_thread_request != CACHE_THREAD_REQUEST_NONE) {
-        //usleep(1000);
+        usleep(1000);
         __sync_synchronize();
     }
 }
@@ -514,7 +518,7 @@ void *cache_thread(void *cx)
         // state is now idle;
         // wait here for a request
         while (cache_thread_request == CACHE_THREAD_REQUEST_NONE) {
-            //usleep(1000);
+            usleep(1000);
             __sync_synchronize();
         }
         INFO("  got request %d\n", cache_thread_request);
@@ -556,15 +560,15 @@ void *cache_thread(void *cx)
             while (true) {
                 cache_get_next_spiral_loc(&spiral);
 
-                idx_a = spiral.x + 1000;
-                idx_b = spiral.y + 1000;
-                if (idx_a < 0 || idx_a >= 2000 || idx_b < 0 || idx_b >= 2000) {
+                idx_a = spiral.x + (CACHE_SIZE/2);
+                idx_b = spiral.y + (CACHE_SIZE/2);
+                if (idx_a < 0 || idx_a >= CACHE_SIZE || idx_b < 0 || idx_b >= CACHE_SIZE) {
                     break;
                 }
 
                 if ((*cache_ptr->mbsval)[idx_b][idx_a] == MBSVAL_NOT_COMPUTED) {
                     //AAA  check this
-                    complex c = (((idx_a-1000) * pixel_size) - ((idx_b-1000) * pixel_size) * I) + cache_ctr;
+                    complex c = (((idx_a-(CACHE_SIZE/2)) * pixel_size) - ((idx_b-(CACHE_SIZE/2)) * pixel_size) * I) + cache_ctr;
                     (*cache_ptr->mbsval)[idx_b][idx_a] = mandelbrot_set(c);
                 }
 
@@ -611,65 +615,3 @@ void cache_get_next_spiral_loc(spiral_t *s)
         }
     }
 }
-
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-// XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-
-#if 0
-        // spiral out from center of cache, filling in mandelbrot
-        // set iteration results for cache elements that don't have 
-        // them compute the mandelbrot set iteration result and save
-        // that value in the cache
-        INFO("STARTING\n");
-        int cnt;
-        spiral_t spiral;
-        double pixel_size = 0;  //xxx PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
-        memset(&spiral, 0, sizeof(spiral_t));
-        int idx_x, idx_y;
-
-        // xxx first do this for current level
-        //     then for other levels 
-        //       - if recenter needed then do that
-        //       - calcu mbs val, but first check if it is already available
-
-        cnt = 0;
-        INFO("DONE cnt=%d\n", cnt);
-#endif
-
-#if 0
-void cache_change_ctr(double ctr_ca, double ctr_cb)
-{
-    short new_mbsval[2000][2000];
-    int old_x, old_y, new_x, new_y, delta_x, delta_y;
-
-    // XXX request thread abort, and wait for that
-
-    // XXX  THIS IS actually delta pixels
-    delta_x = nearbyint((ctr_ca - cache.ctr_ca) / cache.pixel_size);
-    delta_y = nearbyint((ctr_cb - cache.ctr_cb) / cache.pixel_size);
-    INFO("%d %d\n",  delta_x, delta_y);
-
-    // XXX this can be improved
-    memset(new_mbsval,0xff,sizeof(new_mbsval));
-    for (old_x = 0; old_x < 2000; old_x++) {
-        new_x = old_x - delta_x;
-        if (new_x < 0 || new_x >= 2000) continue;
-        for (old_y = 0; old_y < 2000; old_y++) {
-            new_y = old_y - delta_y;
-            if (new_y < 0 || new_y >= 2000) continue;
-            new_mbsval[new_y][new_x] = cache.mbsval[old_y][old_x];
-        }
-    }
-
-    // update cache
-    memcpy(cache.mbsval, new_mbsval, sizeof(new_mbsval));
-    cache.ctr_ca = ctr_ca;
-    cache.ctr_cb = ctr_cb;
-    __sync_synchronize();
-
-    // tell thread to run
-    cache.thread_request++;
-    __sync_synchronize();
-}
-#endif
