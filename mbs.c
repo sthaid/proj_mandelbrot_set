@@ -1,3 +1,13 @@
+// save point     0.27808593632993183764 -0.47566405952660278933
+// XXX NEXT
+// - long double
+//     - what is the precision
+//         0.3333333333333333 14829616256247    16
+//         0.3333333333333333333 42368351437    19
+
+// - config file
+// - smaller cache size
+
 // XXX NEXT
 // - search for and cleanup AAA, XXX xxx
 // - complete review
@@ -66,6 +76,9 @@
 
 #define MAX_ZOOM 50  //xxx temp
 
+#define CONFIG_FILE "mbs.config"   // xxx path
+#define CONFIG_VERSION 1
+
 //
 // typedefs
 //
@@ -76,6 +89,12 @@
 //
 
 int debug_zoom; //AAA  temp
+
+config_t config[] = {
+    { "save0", "notset" },
+    { "save1", "notset" },
+    { "",      ""       },
+                            };
 
 //
 // prototypes
@@ -95,6 +114,14 @@ void cache_set_ctr_and_zoom(complex ctr, int zoom);
 int main(int argc, char **argv)
 { 
     int win_width, win_height;
+    int i;
+
+    // read config file
+    config_read(CONFIG_FILE, config, CONFIG_VERSION);
+    INFO("config: \n");
+    for (i = 0; config[i].name[0] != '\0'; i++) {
+        INFO("  %s = %s\n", config[i].name, config[i].value);
+    }
 
     // init sdl
     win_width  = DEFAULT_WIN_WIDTH;
@@ -167,7 +194,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         unsigned long time_now = microsec_timer();
         unsigned long delta_us = time_now - time_last;
         time_last = time_now;
-        INFO("*******************************************  %ld ms\n", delta_us/1000);
+        //INFO("*******************************************  %ld ms\n", delta_us/1000);
 
         // inform mandelbrot set cache of the current ctr and zoom
         cache_set_ctr_and_zoom(vars->lcl_ctr, vars->lcl_zoom);
@@ -234,7 +261,23 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         case 'q':
             return PANE_HANDLER_RET_PANE_TERMINATE;
             break;
-
+        case '0' + SDL_EVENT_KEY_CTRL:
+            sprintf(config[0].value, "%0.20Lf,%0.20Lf", creall(vars->lcl_ctr), cimagl(vars->lcl_ctr));
+            config_write(CONFIG_FILE, config, CONFIG_VERSION);
+            INFO("WROTE '%s'\n", config[0].value);
+            break;
+        case '0': {
+            long double a,b;
+            int cnt;
+            cnt = sscanf(config[0].value, "%Lf,%Lf", &a, &b);
+            INFO("cnt=%d  '%s'\n", cnt, config[0].value);
+            if (cnt != 2) {
+                INFO("failed to load savepoint 0\n");
+                break;
+            }
+            INFO("setting ctr to %Lf + %Lf I\n", a, b);
+            vars->lcl_ctr = a + b * I;
+            break; }
         }
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -368,7 +411,7 @@ void cache_get_mbsval(short *mbsval)
 // AAA time the steps in this routine
 void cache_set_ctr_and_zoom(complex ctr, int zoom)
 {
-    INFO("XXX CALLED\n");
+    //INFO("XXX CALLED\n");
 
     // if neither zoom or ctr has changed then return
     if (zoom == cache_zoom && ctr == cache_ctr) {
