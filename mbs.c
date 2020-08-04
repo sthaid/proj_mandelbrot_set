@@ -55,17 +55,12 @@
 //
 
 // AAA make it dynamic resizeable
-#if 1
-#define DEFAULT_WIN_WIDTH  800
-#define DEFAULT_WIN_HEIGHT 800
-#else   // XXX try to get resizing to work this way first
-#define DEFAULT_WIN_WIDTH  1600
-#define DEFAULT_WIN_HEIGHT 800
-#endif
+#define WIN_WIDTH  1200 
+#define WIN_HEIGHT 800 
 
 #define INITIAL_CTR         (-0.75 + 0.0*I)
 #define INITIAL_ZOOM        (0)
-#define PIXEL_SIZE_AT_ZOOM0 (3./DEFAULT_WIN_WIDTH)
+#define PIXEL_SIZE_AT_ZOOM0 (3./WIN_WIDTH)
 
 #define MBSVAL_IN_SET   1000
 #define MBSVAL_NOT_COMPUTED  -1
@@ -79,7 +74,8 @@
 #define CONFIG_FILE "mbs.config"   // xxx path
 #define CONFIG_VERSION 1
 
-#define CACHE_SIZE 1000
+#define CACHE_WIDTH  (WIN_WIDTH + 200) 
+#define CACHE_HEIGHT (WIN_HEIGHT + 200)
 
 //
 // typedefs
@@ -126,14 +122,17 @@ int main(int argc, char **argv)
     }
 
     // init sdl
-    win_width  = DEFAULT_WIN_WIDTH;
-    win_height = DEFAULT_WIN_HEIGHT;
+    win_width  = WIN_WIDTH;
+    win_height = WIN_HEIGHT;
     if (sdl_init(&win_width, &win_height, false, false) < 0) {
         FATAL("sdl_init %dx%d failed\n", win_width, win_height);
     }
-    INFO("REQUESTED win_width=%d win_height=%d\n", DEFAULT_WIN_WIDTH, DEFAULT_WIN_HEIGHT);
-    INFO("ACTUAL    win_width=%d win_height=%d\n", win_width, win_height);
-    // xxx for now exit if size is different
+    //INFO("REQUESTED win_width=%d win_height=%d\n", WIN_WIDTH, WIN_HEIGHT);
+    //INFO("ACTUAL    win_width=%d win_height=%d\n", win_width, win_height);
+    if (win_width != WIN_WIDTH || win_height != WIN_HEIGHT) {
+        FATAL("failed to create window %dx%d, got instead %dx%d\n",
+              WIN_WIDTH, WIN_HEIGHT, win_width, win_height);
+    }
 
     // run the pane manger xxx what does this do
     sdl_pane_manager(
@@ -189,14 +188,16 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     if (request == PANE_HANDLER_REQ_RENDER) {
         int            idx = 0, pixel_x, pixel_y;
         unsigned int * pixels = vars->pixels;
-        short          mbsval[800*800];
+        short          mbsval[WIN_HEIGHT*WIN_WIDTH];
 
+#if 1
         // debug
         static unsigned long time_last;
         unsigned long time_now = microsec_timer();
         unsigned long delta_us = time_now - time_last;
         time_last = time_now;
-        //INFO("*******************************************  %ld ms\n", delta_us/1000);
+        INFO("*******************************************  %ld ms\n", delta_us/1000);
+#endif
 
         // inform mandelbrot set cache of the current ctr and zoom
         cache_set_ctr_and_zoom(vars->lcl_ctr, vars->lcl_zoom);
@@ -344,7 +345,7 @@ typedef struct {
 } spiral_t;
 
 typedef struct {
-    short (*mbsval)[CACHE_SIZE][CACHE_SIZE];
+    short (*mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
     complex ctr;
 } cache_t;
 
@@ -375,8 +376,8 @@ void cache_init(complex ctr, int zoom)
 
     for (i = 0; i < MAX_ZOOM; i++) {
         cache[i].ctr = 999. + 0 * I;
-        cache[i].mbsval = malloc(CACHE_SIZE*CACHE_SIZE*2);
-        memset(cache[i].mbsval, 0xff, CACHE_SIZE*CACHE_SIZE*2);
+        cache[i].mbsval = malloc(CACHE_HEIGHT*CACHE_WIDTH*2);
+        memset(cache[i].mbsval, 0xff, CACHE_HEIGHT*CACHE_WIDTH*2);
     }
 
     pthread_create(&id, NULL, cache_thread, NULL);
@@ -388,8 +389,8 @@ void cache_get_mbsval(short *mbsval)
     int idx_b, idx_b_first, idx_b_last;
     cache_t *cache_ptr = &cache[cache_zoom];
 
-    idx_b_first =  (CACHE_SIZE/2) + 800 / 2;
-    idx_b_last  = idx_b_first - 800 + 1;
+    idx_b_first =  (CACHE_HEIGHT/2) + WIN_HEIGHT / 2;
+    idx_b_last  = idx_b_first - WIN_HEIGHT + 1;
 
     if (cache_ptr->ctr != cache_ctr) {
         FATAL("cache_zoom=%d cache_ptr->ctr=%lg+%lgI cache_ctr=%lg+%lgI\n",
@@ -400,9 +401,9 @@ void cache_get_mbsval(short *mbsval)
 
     for (idx_b = idx_b_first; idx_b >= idx_b_last; idx_b--) {
         memcpy(mbsval, 
-               &(*cache_ptr->mbsval)[idx_b][(CACHE_SIZE/2)-800/2],
-               800*sizeof(mbsval[0]));
-        mbsval += 800;
+               &(*cache_ptr->mbsval)[idx_b][(CACHE_WIDTH/2)-WIN_WIDTH/2],
+               WIN_WIDTH*sizeof(mbsval[0]));
+        mbsval += WIN_WIDTH;
     }
 }
 
@@ -444,8 +445,8 @@ void cache_adjust_mbsval_ctr(int zoom)
     cache_t *cache_ptr = &cache[zoom];
     int old_y, new_y, delta_x, delta_y;
     double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
-    short (*new_mbsval)[CACHE_SIZE][CACHE_SIZE];
-    short (*old_mbsval)[CACHE_SIZE][CACHE_SIZE];
+    short (*new_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
+    short (*old_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
 
     delta_x = nearbyint((creal(cache_ptr->ctr) - creal(cache_ctr)) / pixel_size);
     delta_y = nearbyint((cimag(cache_ptr->ctr) - cimag(cache_ctr)) / pixel_size);
@@ -453,31 +454,31 @@ void cache_adjust_mbsval_ctr(int zoom)
 
     // AAA if these are near zero then don't do it
 
-    new_mbsval = malloc(CACHE_SIZE*CACHE_SIZE*2);
+    new_mbsval = malloc(CACHE_HEIGHT*CACHE_WIDTH*2);
     old_mbsval = cache[zoom].mbsval;
 
-    for (new_y = 0; new_y < CACHE_SIZE; new_y++) {
+    for (new_y = 0; new_y < CACHE_HEIGHT; new_y++) {
         old_y = new_y + delta_y;
-        if (old_y < 0 || old_y >= CACHE_SIZE) {
-            memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_SIZE*2);
+        if (old_y < 0 || old_y >= CACHE_HEIGHT) {
+            memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_WIDTH*2);
             continue;
         }
 
-        if (delta_x <= -CACHE_SIZE || delta_x >= CACHE_SIZE) {
-            memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_SIZE*2);
+        if (delta_x <= -CACHE_WIDTH || delta_x >= CACHE_WIDTH) {
+            memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_WIDTH*2);
             continue;
         }
 
         // XXX temp AAA further optimize, to not do this memset
-        memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_SIZE*2);
+        memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_WIDTH*2);
         if (delta_x <= 0) {
             memcpy(&(*new_mbsval)[new_y][0],
                    &(*old_mbsval)[old_y][-delta_x],
-                   (CACHE_SIZE + delta_x) * 2);
+                   (CACHE_WIDTH + delta_x) * 2);
         } else {
             memcpy(&(*new_mbsval)[new_y][delta_x],
                    &(*old_mbsval)[old_y][0],
-                   (CACHE_SIZE - delta_x) * 2);
+                   (CACHE_WIDTH - delta_x) * 2);
         }
     }
 
@@ -559,16 +560,20 @@ void *cache_thread(void *cx)
             memset(&spiral, 0, sizeof(spiral_t));
             while (true) {
                 cache_get_next_spiral_loc(&spiral);
-
-                idx_a = spiral.x + (CACHE_SIZE/2);
-                idx_b = spiral.y + (CACHE_SIZE/2);
-                if (idx_a < 0 || idx_a >= CACHE_SIZE || idx_b < 0 || idx_b >= CACHE_SIZE) {
-                    break;
+                idx_a = spiral.x + (CACHE_WIDTH/2);
+                idx_b = spiral.y + (CACHE_HEIGHT/2);
+                if (CACHE_WIDTH >= CACHE_HEIGHT) {
+                    if (idx_a < 0) break;
+                } else {
+                    if (idx_b < 0) break;
+                }
+                if (idx_a < 0 || idx_a >= CACHE_WIDTH || idx_b < 0 || idx_b >= CACHE_HEIGHT) {
+                    continue;
                 }
 
                 if ((*cache_ptr->mbsval)[idx_b][idx_a] == MBSVAL_NOT_COMPUTED) {
                     //AAA  check this
-                    complex c = (((idx_a-(CACHE_SIZE/2)) * pixel_size) - ((idx_b-(CACHE_SIZE/2)) * pixel_size) * I) + cache_ctr;
+                    complex c = (((idx_a-(CACHE_WIDTH/2)) * pixel_size) - ((idx_b-(CACHE_HEIGHT/2)) * pixel_size) * I) + cache_ctr;
                     (*cache_ptr->mbsval)[idx_b][idx_a] = mandelbrot_set(c);
                 }
 
