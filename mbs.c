@@ -1,4 +1,9 @@
 // XXX NEXT
+// - save and restore to a file
+// - slow down the display processing
+// - util_sdl.c 2019
+
+// XXX NEXT
 // - zoom using textures
 // - config file - still needs more work 
 //   - generalize code for other save numbers
@@ -77,6 +82,9 @@
 #define CACHE_WIDTH  (WIN_WIDTH + 200) 
 #define CACHE_HEIGHT (WIN_HEIGHT + 200)
 
+//AAA comment on being am multiple
+#define ZOOM_STEP .1
+
 //
 // typedefs
 //
@@ -99,7 +107,9 @@ config_t config[] = {
 // xxx check these
 //
 
+// xxx statics
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
+double zoom_step(double z, bool dir_is_incr);
 
 static int mandelbrot_set(complex c);
 
@@ -139,7 +149,7 @@ int main(int argc, char **argv)
         NULL,           // context
         NULL,           // called prior to pane handlers
         NULL,           // called after pane handlers
-        20000,          // 0=continuous, -1=never, else us
+        50000,          // 0=continuous, -1=never, else us  XXX was 20000
         1,              // number of pane handler varargs that follow
         pane_hndlr, NULL, 0, 0, win_width, win_height, PANE_BORDER_STYLE_NONE);
 
@@ -155,12 +165,15 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         texture_t     texture;
         unsigned int *pixels;
         complex       lcl_ctr;
-        int           lcl_zoom;
+        double        lcl_zoom;
+        int           auto_zoom;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
     #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_PAN      (SDL_EVENT_USER_DEFINED + 1)
+
+// AAA don't allow panew/h to change
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -171,12 +184,13 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
 
-        vars->texture  = sdl_create_texture(pane->w, pane->h);
-        vars->pixels   = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
-        vars->lcl_ctr  = INITIAL_CTR;
-        vars->lcl_zoom = INITIAL_ZOOM;
+        vars->texture   = sdl_create_texture(pane->w, pane->h);
+        vars->pixels    = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
+        vars->lcl_ctr   = INITIAL_CTR;
+        vars->lcl_zoom  = INITIAL_ZOOM;
+        vars->auto_zoom = 0;    //xxx needs defines
 
-        cache_init(vars->lcl_ctr, vars->lcl_zoom);
+        cache_init(vars->lcl_ctr, floor(vars->lcl_zoom));
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -190,17 +204,29 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         unsigned int * pixels = vars->pixels;
         short          mbsval[WIN_HEIGHT*WIN_WIDTH];
 
-#if 1
+#if 0
         // debug
         static unsigned long time_last;
         unsigned long time_now = microsec_timer();
         unsigned long delta_us = time_now - time_last;
         time_last = time_now;
-        INFO("*******************************************  %ld ms\n", delta_us/1000);
+        INFO("*** %ld ms\n", delta_us/1000);
 #endif
 
+        if (vars->auto_zoom != 0) {
+            vars->lcl_zoom = zoom_step(vars->lcl_zoom, vars->auto_zoom == 1);
+            if (vars->lcl_zoom == 0) {
+                vars->auto_zoom = 1;
+            }
+            if (vars->lcl_zoom == MAX_ZOOM - ZOOM_STEP) {
+                vars->auto_zoom = 2;
+            }
+        }
+
+        
+
         // inform mandelbrot set cache of the current ctr and zoom
-        cache_set_ctr_and_zoom(vars->lcl_ctr, vars->lcl_zoom);
+        cache_set_ctr_and_zoom(vars->lcl_ctr, floor(vars->lcl_zoom));
 
         // get the cached mandelbrot set values; and
         // convert them to pixel color values
@@ -216,11 +242,35 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         // copy the pixels to the texture and render the texture
         sdl_update_texture(vars->texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
+#if 0
         sdl_render_texture(pane, 0, 0, vars->texture);
+#else
+        rect_t dst = {0,0,pane->w,pane->h};
+        rect_t src;
+
+
+        //if changed then do prints
+        static double lcl_zoom_last;
+        bool do_print = vars->lcl_zoom != lcl_zoom_last;
+        lcl_zoom_last = vars->lcl_zoom;
+        do_print = false; //xxx
+
+        double xxx = pow(2, -(vars->lcl_zoom - floor(vars->lcl_zoom)));
+
+        src.w = pane->w * xxx;
+        src.h = pane->h * xxx;
+        src.x = (pane->w - src.w) / 2;
+        src.y = (pane->h - src.h) / 2;
+
+        if (do_print) INFO("xxx = %.25lf  xywh = %d %d %d %d\n", 
+                            xxx, src.x, src.y, src.w, src.h);
+
+        sdl_render_scaled_texture_ex(pane, &src, &dst, vars->texture);
+#endif
 
         // debug
         static int count;
-        sdl_render_printf(pane, 0, 0, 20, WHITE, BLACK, "%d %d %d",
+        sdl_render_printf(pane, 0, 0, 20, WHITE, BLACK, "%d %g %d",
               count++, vars->lcl_zoom, debug_zoom);
 
         // register for events
@@ -237,15 +287,13 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
-        case '+': case '=':
-            if (vars->lcl_zoom < MAX_ZOOM-1) {
-                vars->lcl_zoom++;
-            }
+        case 'a': //xxx or use esc to disable
+//xxx remember last a
+            vars->auto_zoom = (vars->auto_zoom != 0 ? 0 : 1);
             break;
-        case '-':
-            if (vars->lcl_zoom > 0) {
-                vars->lcl_zoom--;
-            }
+        case '+': case '=': case '-':
+            vars->lcl_zoom = zoom_step(vars->lcl_zoom, 
+                                       event->event_id == '+' || event->event_id == '=');
             break;
         case SDL_EVENT_PAN: {
             double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-vars->lcl_zoom);
@@ -265,19 +313,19 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             return PANE_HANDLER_RET_PANE_TERMINATE;
             break;
         case '0' + SDL_EVENT_KEY_CTRL:
-            sprintf(config[0].value, "%0.20lf,%0.20lf,%d", 
+            sprintf(config[0].value, "%0.20lf,%0.20lf,%20lf", 
                     creal(vars->lcl_ctr), cimag(vars->lcl_ctr), vars->lcl_zoom);
             config_write(CONFIG_FILE, config, CONFIG_VERSION);
             break;
         case '0': {
-            double a,b;
-            int cnt, z;
-            cnt = sscanf(config[0].value, "%lf,%lf,%d", &a, &b, &z);
+            double a,b,z;
+            int cnt;
+            cnt = sscanf(config[0].value, "%lf,%lf,%lf", &a, &b, &z);
             if (cnt != 3) {
                 INFO("failed to load savepoint 0\n");
                 break;
             }
-            INFO("setting ctr=%lf + %lf I, zoom=%d\n", a, b, z);
+            INFO("setting ctr=%lf + %lf I, zoom=%lf\n", a, b, z);
             vars->lcl_ctr = a + b * I;
             vars->lcl_zoom = z;
             break; }
@@ -299,6 +347,23 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // not reached
     assert(0);
     return PANE_HANDLER_RET_NO_ACTION;
+}
+
+double zoom_step(double z, bool dir_is_incr)
+{
+    z += (dir_is_incr ? ZOOM_STEP : -ZOOM_STEP);
+    //INFO("XXXXXXX %g\n", z);
+
+    if (fabs(z - nearbyint(z)) < 1e-6) {
+        z = nearbyint(z);
+        //INFO("XXX snapped\n");
+    }
+
+    if (z < 0) z = 0;
+    if (z >= MAX_ZOOM) z = MAX_ZOOM - ZOOM_STEP;
+    //INFO("XXX lcl_zoom = %.22lf\n", z);
+
+    return z;
 }
 
 // -----------------  MANDELBROT SET EVALUATOR  -------------------------
@@ -418,23 +483,23 @@ void cache_set_ctr_and_zoom(complex ctr, int zoom)
     }
 
     // stop the cache_thread
-    INFO("XXX STOPPING CACHE THREAD\n");
+    //INFO("XXX STOPPING CACHE THREAD\n");
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
-    INFO("XXX STOPPED CACHE THREAD\n");
+    //INFO("XXX STOPPED CACHE THREAD\n");
 
     // update cache_ctr and cache_zoom
     cache_ctr  = ctr;
     cache_zoom = zoom;
 
     // xxx
-    INFO("XXX CALLING ADJUST FOR %d\n", cache_zoom);
+    //INFO("XXX CALLING ADJUST FOR %d\n", cache_zoom);
     cache_adjust_mbsval_ctr(cache_zoom);
-    INFO("XXX DONE CALLING ADJUST FOR %d\n", cache_zoom);
+    //INFO("XXX DONE CALLING ADJUST FOR %d\n", cache_zoom);
 
     // run the cache_thread 
-    INFO("XXX STARTING CACHE THREAD\n");
+    //INFO("XXX STARTING CACHE THREAD\n");
     cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
-    INFO("XXX DONE STARTING CACHE THREAD\n");
+    //INFO("XXX DONE STARTING CACHE THREAD\n");
 }
 
 // - - - - - - - - -  PRIVATE  - - - - - - -
@@ -450,7 +515,7 @@ void cache_adjust_mbsval_ctr(int zoom)
 
     delta_x = nearbyint((creal(cache_ptr->ctr) - creal(cache_ctr)) / pixel_size);
     delta_y = nearbyint((cimag(cache_ptr->ctr) - cimag(cache_ctr)) / pixel_size);
-    INFO("%d %d  zoom=%d\n",  delta_x, delta_y, zoom);
+    //INFO("%d %d  zoom=%d\n",  delta_x, delta_y, zoom);
 
     // AAA if these are near zero then don't do it
 
@@ -522,7 +587,7 @@ void *cache_thread(void *cx)
             usleep(1000);
             __sync_synchronize();
         }
-        INFO("  got request %d\n", cache_thread_request);
+        //INFO("  got request %d\n", cache_thread_request);
 
         // if received stop request then 
         // ack the request and remain idle
@@ -540,9 +605,9 @@ void *cache_thread(void *cx)
         cache_thread_request = CACHE_THREAD_REQUEST_NONE;
         __sync_synchronize();
 
-        INFO("cache thread is starting\n");
-
         // xxx comment
+        INFO("STARTING\n");
+        int cnt = 0;
         for (n = 0; n < MAX_ZOOM; n++) {
             zoom = (cache_zoom + n) % MAX_ZOOM;
             __sync_synchronize();
@@ -575,20 +640,24 @@ void *cache_thread(void *cx)
                     //AAA  check this
                     complex c = (((idx_a-(CACHE_WIDTH/2)) * pixel_size) - ((idx_b-(CACHE_HEIGHT/2)) * pixel_size) * I) + cache_ctr;
                     (*cache_ptr->mbsval)[idx_b][idx_a] = mandelbrot_set(c);
+                    cnt++;
                 }
 
                 __sync_synchronize();  // xxx doing this too often?
                 if (cache_thread_request == CACHE_THREAD_REQUEST_STOP) {
-                    INFO("BEING STOPPED AAA print count\n");
                     break;
                 }
             }
             if (cache_thread_request == CACHE_THREAD_REQUEST_STOP) {
+                INFO("BEING STOPPED cnt=%d\n", cnt);
+                cnt = -1;
                 cache_thread_request = CACHE_THREAD_REQUEST_NONE;
                 __sync_synchronize();
                 break;
             }
         }
+        if (cnt != -1)
+            INFO("DONE cnt=%d\n", cnt);
     }
 }
 

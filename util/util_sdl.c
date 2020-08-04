@@ -2016,6 +2016,24 @@ rect_t sdl_render_scaled_texture(rect_t * pane, rect_t * loc, texture_t texture)
     return loc_clipped;
 }
 
+// XXX doesn't clip
+void sdl_render_scaled_texture_ex(rect_t *pane, rect_t *src, rect_t *dst, texture_t texture)
+{
+    SDL_Rect dstrect, srcrect;
+
+    dstrect.x = dst->x + pane->x;
+    dstrect.y = dst->y + pane->y;
+    dstrect.w = dst->w;
+    dstrect.h = dst->h;
+
+    srcrect.x = src->x;
+    srcrect.y = src->y;
+    srcrect.w = src->w;
+    srcrect.h = src->h;
+
+    SDL_RenderCopy(sdl_renderer, texture, &srcrect, &dstrect);
+}
+
 void sdl_destroy_texture(texture_t texture)
 {
     if (texture) {

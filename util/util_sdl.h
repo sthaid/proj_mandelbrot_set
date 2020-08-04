@@ -212,6 +212,7 @@ void sdl_update_texture(texture_t texture, uint8_t * pixels, int32_t pitch);
 void sdl_query_texture(texture_t texture, int32_t * width, int32_t * height);
 rect_t sdl_render_texture(rect_t * pane, int32_t x, int32_t y, texture_t texture);
 rect_t sdl_render_scaled_texture(rect_t * pane, rect_t * loc, texture_t texture);
+void sdl_render_scaled_texture_ex(rect_t *pane, rect_t *src, rect_t *dst, texture_t texture);
 void sdl_destroy_texture(texture_t texture);
 
 // render using textures - webcam support
