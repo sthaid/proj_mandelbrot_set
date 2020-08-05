@@ -18,7 +18,7 @@
 
 // -----------------  LOGGING  -----------------------------------
 
-//#define ENABLE_LOGGING_AT_DEBUG_LEVEL
+extern bool debug;
 
 #define INFO(fmt, args...) \
     do { \
@@ -32,15 +32,12 @@
     do { \
         logmsg("ERROR", __func__, fmt, ## args); \
     } while (0)
-
-#ifdef ENABLE_LOGGING_AT_DEBUG_LEVEL
-    #define DEBUG(fmt, args...) \
-        do { \
+#define DEBUG(fmt, args...) \
+    do { \
+        if (debug) { \
             logmsg("DEBUG", __func__, fmt, ## args); \
-        } while (0)
-#else
-    #define DEBUG(fmt, args...) 
-#endif
+        } \
+    } while (0)
 
 #define BLANK_LINE \
     do { \
@@ -89,6 +86,7 @@ void logmsg(char * lvl, const char * func, char * fmt, ...) __attribute__ ((form
 
 #define MAX_TIME_STR 50
 
+uint64_t tsc_timer(void);
 uint64_t microsec_timer(void);
 uint64_t get_real_time_us(void);
 char * time2str(char * str, int64_t us, bool gmt, bool display_ms, bool display_date);

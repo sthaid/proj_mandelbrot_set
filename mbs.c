@@ -2,6 +2,7 @@
 // - save and restore to a file
 // - slow down the display processing
 // - util_sdl.c 2019
+// - avoid starting the thread just for a zoom change,  or keep track if a level is completed so search is not needed
 
 // XXX NEXT
 // - zoom using textures
@@ -123,6 +124,9 @@ int main(int argc, char **argv)
 { 
     int win_width, win_height;
     int i;
+
+    debug = false; // XXX set with '-d'  XXX and need seperate debugs for different files
+                   //   maybe   use *debug in the macro, and set this in the file
 
     // read config file
     config_read(CONFIG_FILE, config, CONFIG_VERSION);
@@ -410,8 +414,10 @@ typedef struct {
 } spiral_t;
 
 typedef struct {
-    short (*mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
-    complex ctr;
+    short  (*mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
+    complex  ctr;
+    spiral_t spiral;
+    bool     spiral_done;
 } cache_t;
 
 // variables
@@ -491,10 +497,12 @@ void cache_set_ctr_and_zoom(complex ctr, int zoom)
     cache_ctr  = ctr;
     cache_zoom = zoom;
 
+#if 1
     // xxx
     //INFO("XXX CALLING ADJUST FOR %d\n", cache_zoom);
     cache_adjust_mbsval_ctr(cache_zoom);
     //INFO("XXX DONE CALLING ADJUST FOR %d\n", cache_zoom);
+#endif
 
     // run the cache_thread 
     //INFO("XXX STARTING CACHE THREAD\n");
@@ -515,9 +523,15 @@ void cache_adjust_mbsval_ctr(int zoom)
 
     delta_x = nearbyint((creal(cache_ptr->ctr) - creal(cache_ctr)) / pixel_size);
     delta_y = nearbyint((cimag(cache_ptr->ctr) - cimag(cache_ctr)) / pixel_size);
+
     //INFO("%d %d  zoom=%d\n",  delta_x, delta_y, zoom);
 
-    // AAA if these are near zero then don't do it
+    // AAA if these are near zero (as compared to pixelsize) then don't do it
+    if (delta_x == 0 && delta_y == 0) {
+        //INFO("NO ADJUST AT zoom %d\n", zoom);
+        return;
+    }
+// AAAAAA reset sprial in here
 
     new_mbsval = malloc(CACHE_HEIGHT*CACHE_WIDTH*2);
     old_mbsval = cache[zoom].mbsval;
@@ -550,6 +564,9 @@ void cache_adjust_mbsval_ctr(int zoom)
     free(cache_ptr->mbsval);
     cache_ptr->mbsval = new_mbsval;
     cache_ptr->ctr = cache_ctr;
+
+    memset(&cache_ptr->spiral, 0, sizeof(spiral_t));
+    cache_ptr->spiral_done = false;
 }
 
 void cache_thread_issue_request(int req)
@@ -574,7 +591,6 @@ void *cache_thread(void *cx)
 {
     int        n, idx_a, idx_b, zoom;
     double     pixel_size;
-    spiral_t   spiral;
     cache_t  * cache_ptr;
 
     while (true) {
@@ -606,31 +622,51 @@ void *cache_thread(void *cx)
         __sync_synchronize();
 
         // xxx comment
+        int mbs_call_count = 0;
+        unsigned long start_tsc, end_tsc, start_us, end_us, total_mbs_tsc=0;
+        bool was_stopped = false;
+
         INFO("STARTING\n");
-        int cnt = 0;
+        start_tsc = tsc_timer();
+        start_us = microsec_timer();
+
         for (n = 0; n < MAX_ZOOM; n++) {
             zoom = (cache_zoom + n) % MAX_ZOOM;
-            __sync_synchronize();
-            if (zoom < 0 || zoom >= MAX_ZOOM) {  //AAA not needed
-                continue;
-            }
+            __sync_synchronize();  // XXX why
+
             debug_zoom = zoom; //AAA
 
             pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
             cache_ptr = &cache[zoom];
 
+            if (cache_ptr->spiral_done) {
+                //INFO("spiral is done at zoom %d\n", zoom);
+                continue;
+            }
+
             // AAA
+            // XXX this routine should either not be called or do nothing if the ctr has not changed
             cache_adjust_mbsval_ctr(zoom);
 
-            memset(&spiral, 0, sizeof(spiral_t));
+            // XXX remember the spiral and pack off where left off
+            //   - need spiral_done flag too
+            //   - spiral needs to be reset at every zoom level when the ctr has changed
+            //  may be helpful if a ctr_changed flag is set above when STARTING
+
             while (true) {
-                cache_get_next_spiral_loc(&spiral);
-                idx_a = spiral.x + (CACHE_WIDTH/2);
-                idx_b = spiral.y + (CACHE_HEIGHT/2);
+                cache_get_next_spiral_loc(&cache_ptr->spiral);
+                idx_a = cache_ptr->spiral.x + (CACHE_WIDTH/2);
+                idx_b = cache_ptr->spiral.y + (CACHE_HEIGHT/2);
                 if (CACHE_WIDTH >= CACHE_HEIGHT) {
-                    if (idx_a < 0) break;
+                    if (idx_a < 0) {
+                        cache_ptr->spiral_done = true;
+                        break;
+                    }
                 } else {
-                    if (idx_b < 0) break;
+                    if (idx_b < 0) {
+                        cache_ptr->spiral_done = true;
+                        break;
+                    }
                 }
                 if (idx_a < 0 || idx_a >= CACHE_WIDTH || idx_b < 0 || idx_b >= CACHE_HEIGHT) {
                     continue;
@@ -638,9 +674,18 @@ void *cache_thread(void *cx)
 
                 if ((*cache_ptr->mbsval)[idx_b][idx_a] == MBSVAL_NOT_COMPUTED) {
                     //AAA  check this
-                    complex c = (((idx_a-(CACHE_WIDTH/2)) * pixel_size) - ((idx_b-(CACHE_HEIGHT/2)) * pixel_size) * I) + cache_ctr;
+                    complex c;
+                    unsigned long start_mbs_tsc;
+
+                    start_mbs_tsc = tsc_timer();                    
+
+                    c = (((idx_a-(CACHE_WIDTH/2)) * pixel_size) - 
+                        ((idx_b-(CACHE_HEIGHT/2)) * pixel_size) * I) + 
+                        cache_ctr;
                     (*cache_ptr->mbsval)[idx_b][idx_a] = mandelbrot_set(c);
-                    cnt++;
+                    mbs_call_count++;
+
+                    total_mbs_tsc += tsc_timer() - start_mbs_tsc;
                 }
 
                 __sync_synchronize();  // xxx doing this too often?
@@ -649,15 +694,21 @@ void *cache_thread(void *cx)
                 }
             }
             if (cache_thread_request == CACHE_THREAD_REQUEST_STOP) {
-                INFO("BEING STOPPED cnt=%d\n", cnt);
-                cnt = -1;
+                was_stopped = true;
                 cache_thread_request = CACHE_THREAD_REQUEST_NONE;
                 __sync_synchronize();
                 break;
             }
         }
-        if (cnt != -1)
-            INFO("DONE cnt=%d\n", cnt);
+
+        end_tsc = tsc_timer();
+        end_us = microsec_timer();
+        // AAA use DEBUG
+        INFO("%s  mbs_call_count=%d  duration=%ld ms  mbs_calc=%ld %%\n",
+              !was_stopped ? "DONE" : "STOPPED",
+              mbs_call_count,
+              (end_us - start_us) / 1000,
+              total_mbs_tsc * 100 / (end_tsc - start_tsc));
     }
 }
 

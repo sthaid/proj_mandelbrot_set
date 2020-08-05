@@ -21,6 +21,8 @@
 
 #include "util_misc.h"
 
+bool debug;
+
 // -----------------  LOGMSG  --------------------------------------------
 
 void logmsg(char *lvl, const char *func, char *fmt, ...) 
@@ -60,6 +62,16 @@ void logmsg(char *lvl, const char *func, char *fmt, ...)
 }
 
 // -----------------  TIME UTILS  -----------------------------------------
+
+uint64_t tsc_timer(void)
+{
+    unsigned long  tsc;
+    unsigned int   _eax, _edx;
+
+    asm volatile ("rdtsc" : "=a" (_eax), "=d" (_edx));
+    tsc = (unsigned long)_edx << 32 | _eax;
+    return tsc;
+}
 
 uint64_t microsec_timer(void)
 {
