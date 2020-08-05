@@ -171,6 +171,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         complex       lcl_ctr;
         double        lcl_zoom;
         int           auto_zoom;
+        int           auto_zoom_last;
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
@@ -193,6 +194,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->lcl_ctr   = INITIAL_CTR;
         vars->lcl_zoom  = INITIAL_ZOOM;
         vars->auto_zoom = 0;    //xxx needs defines
+        vars->auto_zoom_last = 1;    //xxx needs defines
 
         cache_init(vars->lcl_ctr, floor(vars->lcl_zoom));
 
@@ -292,8 +294,22 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
         case 'a': //xxx or use esc to disable
-//xxx remember last a
-            vars->auto_zoom = (vars->auto_zoom != 0 ? 0 : 1);
+            //xxx remember last a
+            //vars->auto_zoom = (vars->auto_zoom != 0 ? 0 : 1);
+
+            if (vars->auto_zoom != 0) {
+                vars->auto_zoom_last = vars->auto_zoom;
+                vars->auto_zoom = 0;
+            } else {
+                vars->auto_zoom = vars->auto_zoom_last;
+            }
+            break;
+        case 'A': // flip dir of autozoom
+            if (vars->auto_zoom == 1) {
+                vars->auto_zoom = 2;
+            } else if (vars->auto_zoom == 2) {
+                vars->auto_zoom = 1;
+            }
             break;
         case '+': case '=': case '-':
             vars->lcl_zoom = zoom_step(vars->lcl_zoom, 
@@ -631,6 +647,7 @@ void *cache_thread(void *cx)
         start_us = microsec_timer();
 
         for (n = 0; n < MAX_ZOOM; n++) {
+            // AAA try to run in same direction as the last zoom change
             zoom = (cache_zoom + n) % MAX_ZOOM;
             __sync_synchronize();  // XXX why
 
