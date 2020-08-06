@@ -28,8 +28,9 @@
 // defines
 //
 
-#define MAX_FONT_PTSIZE   200
-#define MAX_EVENT_REG_TBL 1000
+#define MAX_FONT_PTSIZE       200
+#define MAX_EVENT_REG_TBL     1000
+#define MAX_SDL_COLOR_TO_RGBA 1000
 
 #define min(a,b) \
    ({ __typeof__ (a) _a = (a); \
@@ -77,7 +78,7 @@ static sdl_event_t      sdl_push_ev;
 static struct pane_list_head_s * sdl_pane_list_head[10];
 static int              sdl_pane_list_head_idx;
 
-static uint32_t         sdl_color_to_rgba[] = {
+static uint32_t         sdl_color_to_rgba[MAX_SDL_COLOR_TO_RGBA] = {
                             //    red           green          blue    alpha
                                (127 << 0) | (  0 << 8) | (255 << 16) | (255 << 24),  // PURPLE
                                (  0 << 0) | (  0 << 8) | (255 << 16) | (255 << 24),  // BLUE
@@ -274,11 +275,17 @@ static void set_color(int32_t color)
     uint8_t r, g, b, a;
     uint32_t rgba;
 
+    if (color < 0 || color >= MAX_SDL_COLOR_TO_RGBA) {
+        FATAL("color %d out of range\n", color);
+    }
+
     rgba = sdl_color_to_rgba[color];
+    
     r = (rgba >>  0) & 0xff;
     g = (rgba >>  8) & 0xff;
     b = (rgba >> 16) & 0xff;
     a = (rgba >> 24) & 0xff;
+
     SDL_SetRenderDrawColor(sdl_renderer, r, g, b, a);
 }
 
@@ -505,9 +512,6 @@ void sdl_pane_manager(void *display_cx,                        // optional, cont
                     redraw = true;
                 } else if (ret == PANE_HANDLER_RET_DISPLAY_REDRAW) {
                     redraw = true;
-                //} else if (ret == PANE_HANDLER_RET_NO_ACTION) {
-                    // XXX
-                    //continue;
                 }
             }
 
@@ -1216,7 +1220,6 @@ void sdl_render_printf(rect_t * pane, int32_t x, int32_t y, int32_t font_ptsize,
 // -----------------  RENDER RECTANGLES & LINES  ------------------------ 
 
 // XXX sdl_render_rect, and sdl_render_fill_rect needs to support clipping
-
 void sdl_render_rect(rect_t * pane, rect_t * loc, int32_t line_width, int32_t color)
 {
     SDL_Rect rect;
@@ -2016,7 +2019,7 @@ rect_t sdl_render_scaled_texture(rect_t * pane, rect_t * loc, texture_t texture)
     return loc_clipped;
 }
 
-// XXX doesn't clip
+// XXX this should also support clipping
 void sdl_render_scaled_texture_ex(rect_t *pane, rect_t *src, rect_t *dst, texture_t texture)
 {
     SDL_Rect dstrect, srcrect;
@@ -2195,7 +2198,64 @@ static char *print_screen_filename(void)
     return filename;
 }
 
-// -----------------  MISC  --------------------------------------------- 
+// -----------------  COLORS  ------------------------------------------- 
+
+void sdl_define_custom_color(int32_t color, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (color < 0 || color >= MAX_SDL_COLOR_TO_RGBA) {
+        FATAL("color %d out of range\n", color);
+    }
+
+    sdl_color_to_rgba[color] = (r << 0) | ( g << 8) | (b << 16) | (0xff << 24);
+}
+
+// ported from http://www.noah.org/wiki/Wavelength_to_RGB_in_Python
+void sdl_wavelen_to_rgb(double wavelength, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    double attenuation;
+    double gamma = 0.8;
+    double R,G,B;
+
+    if (wavelength >= 380 && wavelength <= 440) {
+        double attenuation = 0.3 + 0.7 * (wavelength - 380) / (440 - 380);
+        R = pow((-(wavelength - 440) / (440 - 380)) * attenuation, gamma);
+        G = 0.0;
+        B = pow(1.0 * attenuation, gamma);
+    } else if (wavelength >= 440 && wavelength <= 490) {
+        R = 0.0;
+        G = pow((wavelength - 440) / (490 - 440), gamma);
+        B = 1.0;
+    } else if (wavelength >= 490 && wavelength <= 510) {
+        R = 0.0;
+        G = 1.0;
+        B = pow(-(wavelength - 510) / (510 - 490), gamma);
+    } else if (wavelength >= 510 && wavelength <= 580) {
+        R = pow((wavelength - 510) / (580 - 510), gamma);
+        G = 1.0;
+        B = 0.0;
+    } else if (wavelength >= 580 && wavelength <= 645) {
+        R = 1.0;
+        G = pow(-(wavelength - 645) / (645 - 580), gamma);
+        B = 0.0;
+    } else if (wavelength >= 645 && wavelength <= 750) {
+        attenuation = 0.3 + 0.7 * (750 - wavelength) / (750 - 645);
+        R = pow(1.0 * attenuation, gamma);
+        G = 0.0;
+        B = 0.0;
+    } else {
+        R = 0.0;
+        G = 0.0;
+        B = 0.0;
+    }
+
+    if (R < 0) R = 0; else if (R > 1) R = 1;
+    if (G < 0) G = 0; else if (G > 1) G = 1;
+    if (B < 0) B = 0; else if (B > 1) B = 1;
+
+    *r = R * 255;
+    *g = G * 255;
+    *b = B * 255;
+}
 
 int32_t sdl_color(char * color_str)
 {

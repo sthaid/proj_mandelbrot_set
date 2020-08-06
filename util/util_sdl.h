@@ -225,7 +225,9 @@ void sdl_update_iyuv_texture(texture_t texture, uint8_t *y_plane, int y_pitch,
 // print screen, file_name must end in .jpg or .png
 void sdl_print_screen(char * file_name, bool flash_display, rect_t * rect);
 
-// misc
+// colors
+void sdl_define_custom_color(int32_t color, uint8_t r, uint8_t g, uint8_t b);
+void sdl_wavelen_to_rgb(double wavelength, uint8_t *r, uint8_t *g, uint8_t *b);
 int32_t sdl_color(char * color_str);
 
 #endif

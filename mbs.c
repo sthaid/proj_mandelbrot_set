@@ -1,3 +1,8 @@
+// XXX wavelength to RGB
+//   https://gist.github.com/friendly/67a7df339aa999e2bcfcfec88311abfc
+//   http://www.noah.org/wiki/Wavelength_to_RGB_in_Python
+// - pane ctrl keystroke to switch to colormap display
+
 // XXX NEXT
 // - save and restore to a file
 // - slow down the display processing
@@ -206,6 +211,30 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ------------------------
 
     if (request == PANE_HANDLER_REQ_RENDER) {
+#if 0
+        static bool first_call = true;
+        int wl;
+        unsigned char r,g,b;
+
+        if (first_call) {
+            for (wl = 380; wl <= 750; wl++) {
+                sdl_wavelen_to_rgb(wl, &r, &g, &b);
+                sdl_define_custom_color(wl, r,g,b);
+            }
+            first_call = false;
+        }
+
+        int x = 50;
+        for (wl = 380; wl <= 750; wl++) {
+            sdl_render_line(pane, (x+0), 0, (x+0), pane->h-1, wl); 
+            sdl_render_line(pane, (x+1), 0, (x+1), pane->h-1, wl); 
+            sdl_render_line(pane, (x+2), 0, (x+2), pane->h-1, wl); 
+            x += 3;
+        }
+
+        return PANE_HANDLER_RET_NO_ACTION;
+#endif
+
         int            idx = 0, pixel_x, pixel_y;
         unsigned int * pixels = vars->pixels;
         short          mbsval[WIN_HEIGHT*WIN_WIDTH];
@@ -228,8 +257,6 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
                 vars->auto_zoom = 2;
             }
         }
-
-        
 
         // inform mandelbrot set cache of the current ctr and zoom
         cache_set_ctr_and_zoom(vars->lcl_ctr, floor(vars->lcl_zoom));
@@ -475,11 +502,14 @@ void cache_get_mbsval(short *mbsval)
 {
     int idx_b, idx_b_first, idx_b_last;
     cache_t *cache_ptr = &cache[cache_zoom];
+    double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-cache_zoom);
 
     idx_b_first =  (CACHE_HEIGHT/2) + WIN_HEIGHT / 2;
     idx_b_last  = idx_b_first - WIN_HEIGHT + 1;
 
-    if (cache_ptr->ctr != cache_ctr) {
+    if ((fabs(creal(cache_ptr->ctr) - creal(cache_ctr)) > 1.1 * pixel_size) ||
+        (fabs(cimag(cache_ptr->ctr) - cimag(cache_ctr)) > 1.1 * pixel_size))
+    {
         FATAL("cache_zoom=%d cache_ptr->ctr=%lg+%lgI cache_ctr=%lg+%lgI\n",
               cache_zoom, 
               creal(cache_ptr->ctr), cimag(cache_ptr->ctr),
@@ -596,7 +626,7 @@ void cache_thread_issue_request(int req)
 
     // xxx comments
     while (cache_thread_request != CACHE_THREAD_REQUEST_NONE) {
-        usleep(1000);
+        usleep(1000);  // AAA shorter usleeps
         __sync_synchronize();
     }
 }
@@ -638,9 +668,22 @@ void *cache_thread(void *cx)
         __sync_synchronize();
 
         // xxx comment
-        int mbs_call_count = 0;
-        unsigned long start_tsc, end_tsc, start_us, end_us, total_mbs_tsc=0;
-        bool was_stopped = false;
+        // XXX define all at top
+        int mbs_call_count;
+        unsigned long start_tsc, end_tsc, start_us, end_us, total_mbs_tsc;
+        bool was_stopped;
+        int dir;
+
+        static int last_cache_zoom;
+
+        mbs_call_count = 0;
+        total_mbs_tsc = 0;
+        was_stopped = false;
+        dir = (cache_zoom >= last_cache_zoom ? 1 : -1);
+        INFO("XXXXXXXXXX dir = %d\n", dir);
+
+        last_cache_zoom = cache_zoom;
+
 
         INFO("STARTING\n");
         start_tsc = tsc_timer();
@@ -648,7 +691,7 @@ void *cache_thread(void *cx)
 
         for (n = 0; n < MAX_ZOOM; n++) {
             // AAA try to run in same direction as the last zoom change
-            zoom = (cache_zoom + n) % MAX_ZOOM;
+            zoom = (cache_zoom + dir*n + MAX_ZOOM) % MAX_ZOOM;
             __sync_synchronize();  // XXX why
 
             debug_zoom = zoom; //AAA
