@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -x
+gcc -Wall -o precision precision.c
+gcc -Wall -o spiral -lncurses spiral.c
