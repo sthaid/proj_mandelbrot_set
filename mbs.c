@@ -177,6 +177,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         double        lcl_zoom;
         int           auto_zoom;
         int           auto_zoom_last;
+        unsigned int  color_lut[65536];  // xxx maxshort
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
@@ -200,6 +201,17 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->lcl_zoom  = INITIAL_ZOOM;
         vars->auto_zoom = 0;    //xxx needs defines
         vars->auto_zoom_last = 1;    //xxx needs defines
+
+        // xxx later vars->color_lut[65535]         = PIXEL_BLUE;
+
+        vars->color_lut[MBSVAL_IN_SET] = PIXEL_BLACK;
+        int i;
+        for (i = 0; i < MBSVAL_IN_SET; i++) {
+            unsigned char r,g,b;
+            double wavelen = 400. + i * ((700. - 400.) / (MBSVAL_IN_SET-1));
+            sdl_wavelen_to_rgb(wavelen, &r, &g, &b);
+            vars->color_lut[i] = (r << 0) | (  g << 8) | (b << 16) | (255 << 24); // xxx mavro
+        }
 
         cache_init(vars->lcl_ctr, floor(vars->lcl_zoom));
 
@@ -266,9 +278,17 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         cache_get_mbsval(mbsval);
         for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
             for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
+#if 0
                 pixels[idx] = (mbsval[idx] == MBSVAL_NOT_COMPUTED ? PIXEL_BLUE  :
                                mbsval[idx] == MBSVAL_IN_SET  ? PIXEL_BLACK :
                                                                PIXEL_WHITE);
+#else
+                pixels[idx] = (mbsval[idx] == MBSVAL_NOT_COMPUTED 
+                               ? PIXEL_BLUE
+                               : vars->color_lut[mbsval[idx]]);
+//xxx unsigned short
+#endif
+
                 idx++;
             }
         }
