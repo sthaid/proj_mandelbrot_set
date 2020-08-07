@@ -1,50 +1,49 @@
-// XXX wavelength to RGB
-//   https://gist.github.com/friendly/67a7df339aa999e2bcfcfec88311abfc
-//   http://www.noah.org/wiki/Wavelength_to_RGB_in_Python
-// - pane ctrl keystroke to switch to colormap display
 
-// XXX NEXT
+// XXX
+// - lots of cleanup
+// - complete review
+//
+// - use key ctls to adjust the color range
+// - keyctl option for black and white vs color
+// - use terminal window for debug output and not the display
+// - key option to switch to color map display  ??
 // - save and restore to a file
 // - slow down the display processing
 // - util_sdl.c 2019
-// - avoid starting the thread just for a zoom change,  or keep track if a level is completed so search is not needed
-
-// XXX NEXT
-// - zoom using textures
-// - config file - still needs more work 
-//   - generalize code for other save numbers
-//   - use ALT-0 to save the data too
-//      - command to save location and the mbsvalues 
-
-// XXX NEXT
-// - search for and cleanup AAA, XXX xxx
-// - complete review
-
-// XXX general improvements
-// - window resize
-//   - cache size should track window size, and not be square
-// - colors
-// - zoom using textures,  zoom vars need to be doulbe to do this
-
-// XXX general cleanup
 // - use nearbyint where needed
-// - review util/util_sdl.c history
 // - add debug prints
-
-// XXX debug 
 // - display stats either in window or in terminal
 //   if in window should have a control to enable or disable
-
-// XXX MAYBE LATER
-// - how to speed up
-//   - integer math
-//   - multiple threads
+// - maybe auto zoom should wrap instead of bounce
+//
+// - controls
+//   - zoom with mouse wheel
+//   - enable or disable status values
+//   - help screen
+//   - colors screen
+//   - esc returns to main screen
+//
+// - program options
+//   - fullscreen
+//   - -g wxh
+//
+// - save / restore
+//   - config file - still needs more work 
+//     - generalize code for other save numbers
+//     - use ALT-0 to save the data too
+//        - command to save location and the mbsvalues 
+//
+// - performance
+//   - how to speed up
+//     - integer math
+//     - multiple threads
+//
+// XXX maybe later
+// - window resize
+//   - cache size should track window size, and not be square
 // - put the cache code in other file  ??
 
 // XXX SAVE INFO
-// - what is the precision
-//   0.3333333333333333 14829616256247    16
-//   0.3333333333333333333 42368351437    19
 // - save point     0.27808593632993183764,-0.47566405952660278933
 
 
@@ -65,28 +64,35 @@
 // defines
 //
 
+// XXX I want to use 16x9 when in full screen
+//     when using desktop the pixel size ratio is a function of the desktop setting, which should be 16x9
 // AAA make it dynamic resizeable
-#define WIN_WIDTH  1200 
-#define WIN_HEIGHT 800 
+//#define WIN_WIDTH  1280 
+//#define WIN_HEIGHT 720 
+//#define WIN_WIDTH  640 
+//#define WIN_HEIGHT 400 
+#define DEFAULT_WIN_WIDTH  1600 
+#define DEFAULT_WIN_HEIGHT 900 
 
 #define INITIAL_CTR         (-0.75 + 0.0*I)
-#define INITIAL_ZOOM        (0)
-#define PIXEL_SIZE_AT_ZOOM0 (3./WIN_WIDTH)
+//#define PIXEL_SIZE_AT_ZOOM0 (4./WIN_WIDTH)
 
-#define MBSVAL_IN_SET   1000
+#define MBSVAL_IN_SET   1000  // XXX this should be in the color_lut code
 #define MBSVAL_NOT_COMPUTED  -1
 
 #define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
 #define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
 #define PIXEL_BLUE  ((  0 << 0) | (  0 << 8) | (255 << 16) | (255 << 24))
 
-#define MAX_ZOOM 50  //xxx temp
+#define MAX_ZOOM 47
 
 #define CONFIG_FILE "mbs.config"   // xxx path
 #define CONFIG_VERSION 1
 
-#define CACHE_WIDTH  (WIN_WIDTH + 200) 
-#define CACHE_HEIGHT (WIN_HEIGHT + 200)
+//#define CACHE_WIDTH  (WIN_WIDTH + 200) 
+//#define CACHE_HEIGHT (WIN_HEIGHT + 200)
+#define CACHE_WIDTH  (2000)
+#define CACHE_HEIGHT (1200)
 
 //AAA comment on being am multiple
 #define ZOOM_STEP .1
@@ -108,6 +114,9 @@ config_t config[] = {
     { "",      ""       },
                             };
 
+int win_width, win_height;
+double pixel_size_at_zoom0;
+
 //
 // prototypes
 // xxx check these
@@ -127,11 +136,12 @@ void cache_set_ctr_and_zoom(complex ctr, int zoom);
 
 int main(int argc, char **argv)
 { 
-    int win_width, win_height;
     int i;
 
     debug = false; // XXX set with '-d'  XXX and need seperate debugs for different files
                    //   maybe   use *debug in the macro, and set this in the file
+
+//AAA-NEXT getopt   -g NNNxNNN   -f
 
     // read config file
     config_read(CONFIG_FILE, config, CONFIG_VERSION);
@@ -141,17 +151,19 @@ int main(int argc, char **argv)
     }
 
     // init sdl
-    win_width  = WIN_WIDTH;
-    win_height = WIN_HEIGHT;
-    if (sdl_init(&win_width, &win_height, false, false) < 0) {
+    win_width  = DEFAULT_WIN_WIDTH;
+    win_height = DEFAULT_WIN_HEIGHT;
+    if (sdl_init(&win_width, &win_height, true, false) < 0) {
         FATAL("sdl_init %dx%d failed\n", win_width, win_height);
     }
-    //INFO("REQUESTED win_width=%d win_height=%d\n", WIN_WIDTH, WIN_HEIGHT);
-    //INFO("ACTUAL    win_width=%d win_height=%d\n", win_width, win_height);
-    if (win_width != WIN_WIDTH || win_height != WIN_HEIGHT) {
+    INFO("REQUESTED win_width=%d win_height=%d\n", DEFAULT_WIN_WIDTH, DEFAULT_WIN_HEIGHT);
+    INFO("ACTUAL    win_width=%d win_height=%d\n", win_width, win_height);
+    if (win_width != DEFAULT_WIN_WIDTH || win_height != DEFAULT_WIN_HEIGHT) { //xxx remove later
         FATAL("failed to create window %dx%d, got instead %dx%d\n",
-              WIN_WIDTH, WIN_HEIGHT, win_width, win_height);
+              DEFAULT_WIN_WIDTH, DEFAULT_WIN_HEIGHT, win_width, win_height);
     }
+
+    pixel_size_at_zoom0 = 4. / win_width;
 
     // run the pane manger xxx what does this do
     sdl_pane_manager(
@@ -183,6 +195,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
     #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_PAN      (SDL_EVENT_USER_DEFINED + 1)
+    #define SDL_EVENT_ZOOM     (SDL_EVENT_USER_DEFINED + 2)
 
 // AAA don't allow panew/h to change
 
@@ -198,7 +211,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->texture   = sdl_create_texture(pane->w, pane->h);
         vars->pixels    = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
         vars->lcl_ctr   = INITIAL_CTR;
-        vars->lcl_zoom  = INITIAL_ZOOM;
+        vars->lcl_zoom  = 0;
         vars->auto_zoom = 0;    //xxx needs defines
         vars->auto_zoom_last = 1;    //xxx needs defines
 
@@ -249,7 +262,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         int            idx = 0, pixel_x, pixel_y;
         unsigned int * pixels = vars->pixels;
-        short          mbsval[WIN_HEIGHT*WIN_WIDTH];
+//AAAAAAAAAA
 
 #if 0
         // debug
@@ -259,6 +272,39 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         time_last = time_now;
         INFO("*** %ld ms\n", delta_us/1000);
 #endif
+
+        // if window size has changed then update the pane's 
+        // location within the window
+        int curr_win_width, curr_win_height;
+        sdl_get_window_size(&curr_win_width, &curr_win_height);
+        if (curr_win_width != win_width || curr_win_height != win_height) {
+            INFO("NEW WIN SIZE %d %d\n", curr_win_width, curr_win_height);
+            sdl_pane_update(pane_cx, 0, 0, curr_win_width, curr_win_height);
+            // AAA is it safe to change these without stopping the thread
+            win_width = curr_win_width;
+            win_height = curr_win_height;
+            //pixel_size_at_zoom0 = 4. / win_width;
+            // AAA pixel_size_at_zoom0
+        }
+
+        // if the texture hasn't been allocated yet, or the size of the
+        // texture doesn't match the size of the pane then
+        // re-allocate the texture and the pixels array
+        int curr_texture_width, curr_texture_height;
+        if ((vars->texture == NULL) ||
+            ((sdl_query_texture(vars->texture, &curr_texture_width, &curr_texture_height), true) &&
+             (curr_texture_width != pane->w || curr_texture_height != pane->h)))
+        {
+            INFO("ALLOCATING TEXTURE AND PIXELS\n");
+            sdl_destroy_texture(vars->texture);
+            free(vars->pixels);
+            INFO("   %d %d\n", pane->w, pane->h);
+            vars->texture = sdl_create_texture(pane->w, pane->h);
+            vars->pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
+            pixels = vars->pixels;
+        }
+
+
 
         if (vars->auto_zoom != 0) {
             vars->lcl_zoom = zoom_step(vars->lcl_zoom, vars->auto_zoom == 1);
@@ -275,7 +321,10 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         // get the cached mandelbrot set values; and
         // convert them to pixel color values
+        //short          mbsval[win_height*win_width]; // XXXXXX ??
+        short * mbsval = malloc(win_height*win_width*2);
         cache_get_mbsval(mbsval);
+        //memset(mbsval,0, win_height*win_width*2);
         for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
             for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
 #if 0
@@ -292,6 +341,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
                 idx++;
             }
         }
+        free(mbsval);
 
         // copy the pixels to the texture and render the texture
         sdl_update_texture(vars->texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
@@ -321,6 +371,9 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         sdl_render_scaled_texture_ex(pane, &src, &dst, vars->texture);
 #endif
 
+        rect_t loc = { pane->w/2-100, pane->h/2-100, 200, 200};
+        sdl_render_rect(pane, &loc, 1, WHITE);
+
         // debug
         static int count;
         sdl_render_printf(pane, 0, 0, 20, WHITE, BLACK, "%d %g %d",
@@ -329,6 +382,8 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         // register for events
         sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
         sdl_register_event(pane, pane, SDL_EVENT_PAN, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
+        sdl_register_event(pane, pane, SDL_EVENT_ZOOM, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+
 
         // return
         return PANE_HANDLER_RET_NO_ACTION;
@@ -338,6 +393,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // -------- EVENT --------
     // -----------------------
 
+// reset zoom back to minimum
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
         case 'a': //xxx or use esc to disable
@@ -358,27 +414,49 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
                 vars->auto_zoom = 1;
             }
             break;
+//AAA mouse wheel
+        case 't': {
+            static bool fullscreen; // xxx vars
+            fullscreen = !fullscreen;
+            INFO("setting fullscreen to %d\n", fullscreen);
+            sdl_full_screen(fullscreen);
+            break; }
         case '+': case '=': case '-':
             vars->lcl_zoom = zoom_step(vars->lcl_zoom, 
                                        event->event_id == '+' || event->event_id == '=');
             break;
+        case SDL_EVENT_ZOOM:
+            if (event->mouse_wheel.delta_y > 0) {
+                vars->lcl_zoom = zoom_step(vars->lcl_zoom, true);
+            } else if (event->mouse_wheel.delta_y < 0) {
+                vars->lcl_zoom = zoom_step(vars->lcl_zoom, false);
+            }
+            break;
         case SDL_EVENT_PAN: {
-            double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-vars->lcl_zoom);
+            double pixel_size = pixel_size_at_zoom0 * pow(2,-vars->lcl_zoom);
             vars->lcl_ctr += -(event->mouse_motion.delta_x * pixel_size) + 
                              -(event->mouse_motion.delta_y * pixel_size) * I;
             break; }
         case SDL_EVENT_CENTER: {
-            double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-vars->lcl_zoom);
+            double pixel_size = pixel_size_at_zoom0 * pow(2,-vars->lcl_zoom);
             vars->lcl_ctr += ((event->mouse_click.x - (pane->w/2)) * pixel_size) + 
                              ((event->mouse_click.y - (pane->h/2)) * pixel_size) * I;
             break; }
         case 'r':
             vars->lcl_ctr  = INITIAL_CTR;
-            vars->lcl_zoom = INITIAL_ZOOM;
+            vars->lcl_zoom = 0;
+            break;
+        case 'z':
+            if (vars->lcl_zoom == MAX_ZOOM - ZOOM_STEP) {
+                vars->lcl_zoom = 0;
+            } else {
+                vars->lcl_zoom = MAX_ZOOM - ZOOM_STEP;
+            }
             break;
         case 'q':
             return PANE_HANDLER_RET_PANE_TERMINATE;
             break;
+        // XXX redo this
         case '0' + SDL_EVENT_KEY_CTRL:
             sprintf(config[0].value, "%0.20lf,%0.20lf,%20lf", 
                     creal(vars->lcl_ctr), cimag(vars->lcl_ctr), vars->lcl_zoom);
@@ -427,7 +505,7 @@ double zoom_step(double z, bool dir_is_incr)
     }
 
     if (z < 0) z = 0;
-    if (z >= MAX_ZOOM) z = MAX_ZOOM - ZOOM_STEP;
+    if (z > MAX_ZOOM - ZOOM_STEP) z = MAX_ZOOM - ZOOM_STEP;
     //INFO("XXX lcl_zoom = %.22lf\n", z);
 
     return z;
@@ -522,10 +600,10 @@ void cache_get_mbsval(short *mbsval)
 {
     int idx_b, idx_b_first, idx_b_last;
     cache_t *cache_ptr = &cache[cache_zoom];
-    double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-cache_zoom);
+    double pixel_size = pixel_size_at_zoom0 * pow(2,-cache_zoom);
 
-    idx_b_first =  (CACHE_HEIGHT/2) + WIN_HEIGHT / 2;
-    idx_b_last  = idx_b_first - WIN_HEIGHT + 1;
+    idx_b_first =  (CACHE_HEIGHT/2) + win_height / 2;
+    idx_b_last  = idx_b_first - win_height + 1;
 
     if ((fabs(creal(cache_ptr->ctr) - creal(cache_ctr)) > 1.1 * pixel_size) ||
         (fabs(cimag(cache_ptr->ctr) - cimag(cache_ctr)) > 1.1 * pixel_size))
@@ -538,9 +616,9 @@ void cache_get_mbsval(short *mbsval)
 
     for (idx_b = idx_b_first; idx_b >= idx_b_last; idx_b--) {
         memcpy(mbsval, 
-               &(*cache_ptr->mbsval)[idx_b][(CACHE_WIDTH/2)-WIN_WIDTH/2],
-               WIN_WIDTH*sizeof(mbsval[0]));
-        mbsval += WIN_WIDTH;
+               &(*cache_ptr->mbsval)[idx_b][(CACHE_WIDTH/2)-win_width/2],
+               win_width*sizeof(mbsval[0]));
+        mbsval += win_width;
     }
 }
 
@@ -583,7 +661,7 @@ void cache_adjust_mbsval_ctr(int zoom)
 {
     cache_t *cache_ptr = &cache[zoom];
     int old_y, new_y, delta_x, delta_y;
-    double pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
+    double pixel_size = pixel_size_at_zoom0 * pow(2,-zoom);
     short (*new_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
     short (*old_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
 
@@ -700,6 +778,7 @@ void *cache_thread(void *cx)
         total_mbs_tsc = 0;
         was_stopped = false;
         dir = (cache_zoom >= last_cache_zoom ? 1 : -1);
+        // XXX reverse dir when at a limit
         INFO("XXXXXXXXXX dir = %d\n", dir);
 
         last_cache_zoom = cache_zoom;
@@ -709,6 +788,7 @@ void *cache_thread(void *cx)
         start_tsc = tsc_timer();
         start_us = microsec_timer();
 
+// AAA spiral should first prioritize getting to window dimensions, and then the whole cache
         for (n = 0; n < MAX_ZOOM; n++) {
             // AAA try to run in same direction as the last zoom change
             zoom = (cache_zoom + dir*n + MAX_ZOOM) % MAX_ZOOM;
@@ -716,7 +796,7 @@ void *cache_thread(void *cx)
 
             debug_zoom = zoom; //AAA
 
-            pixel_size = PIXEL_SIZE_AT_ZOOM0 * pow(2,-zoom);
+            pixel_size = pixel_size_at_zoom0 * pow(2,-zoom);
             cache_ptr = &cache[zoom];
 
             if (cache_ptr->spiral_done) {
