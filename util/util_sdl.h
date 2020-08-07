@@ -154,6 +154,9 @@ int32_t sdl_init(int32_t * w, int32_t * h, bool resizeable, bool swap_white_blac
 void sdl_get_window_size(int32_t * w, int32_t * h);
 void sdl_get_max_texture_dim(int32_t * max_texture_dim);
 
+// display mode
+void sdl_full_screen(bool enable);
+
 // pane support
 void sdl_pane_manager(void *display_cx,                        // optional, context
                       void (*display_start)(void *display_cx), // optional, called prior to pane handlers

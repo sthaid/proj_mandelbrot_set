@@ -232,6 +232,11 @@ void sdl_get_window_size(int32_t *w, int32_t *h)
     *h = sdl_win_height;
 }
 
+void sdl_full_screen(bool enable)
+{
+    SDL_SetWindowFullscreen(sdl_window, enable ? SDL_WINDOW_FULLSCREEN : 0);
+}
+
 void sdl_get_max_texture_dim(int32_t * max_texture_dim)
 {
     // return the max texture dimension to caller;
