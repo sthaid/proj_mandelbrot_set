@@ -224,9 +224,16 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         sdl_render_scaled_texture_ex(pane, &src, &dst, vars->texture);
 
+#if 0
         // xxx temp
         rect_t loc = { pane->w/2-100, pane->h/2-100, 200, 200};
         sdl_render_rect(pane, &loc, 1, WHITE);
+#endif
+
+        // status
+        sdl_render_printf(pane, 0, 0, 20,  WHITE, BLACK, 
+                          "%s",
+                          cache_status_str());
 
         // register for events
         sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);

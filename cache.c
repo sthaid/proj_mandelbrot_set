@@ -43,6 +43,10 @@ static int      cache_win_height;
 static cache_t  cache[MAX_ZOOM];
 static int      cache_thread_request;
 
+static int      xxx_n;
+static double   xxx_status;
+static int      xxx_cache_zoom;
+
 //
 // prototypes
 //
@@ -122,6 +126,13 @@ void cache_get_mbsval(short *mbsval)
                cache_win_width*sizeof(mbsval[0]));
         mbsval += cache_win_width;
     }
+}
+
+char *cache_status_str(void)
+{
+    static char s[100];
+    sprintf(s, "%.0f %%  n=%d  cz=%d", xxx_status, xxx_n, xxx_cache_zoom);
+    return s;
 }
 
 
@@ -231,7 +242,7 @@ static void *cache_thread(void *cx)
         bool was_stopped;
         int dir;
 
-        static int last_cache_zoom;
+        static int last_cache_zoom; // xxx not comparing this properly
 
         INFO("STARTING\n");
 
@@ -254,6 +265,10 @@ static void *cache_thread(void *cx)
 
         // AAA spiral should first prioritize getting to window dimensions, and then the whole cache
         for (n = 0; n < 2*MAX_ZOOM; n++) {
+            xxx_n = n;
+            xxx_status = n / (2.*MAX_ZOOM) * 100;
+            xxx_cache_zoom = cache_zoom;
+
             zoom = (cache_zoom + dir*n + 2*MAX_ZOOM) % MAX_ZOOM;
             __sync_synchronize();  // XXX why
 
@@ -270,7 +285,7 @@ static void *cache_thread(void *cx)
 
             // xxx maybe want 2 spiral done flags now
             if (cache_ptr->spiral_done) {
-                INFO("spiral is done at zoom %d\n", zoom);
+                //INFO("spiral is done at zoom %d\n", zoom);
                 goto stop_check2;
             }
 
@@ -352,6 +367,10 @@ stop_check2:
                 break;
             }
         }
+
+        xxx_n = n;
+        xxx_status = n / (2.*MAX_ZOOM) * 100;
+        xxx_cache_zoom = cache_zoom;
 
         end_tsc = tsc_timer();
         end_us = microsec_timer();

@@ -34,5 +34,6 @@ int mandelbrot_set(complex c);
 void cache_init(void);
 void cache_param_change(complex ctr, int zoom, int win_width, int win_height);
 void cache_get_mbsval(short *mbsval);
+char *cache_status_str(void);
 
 #endif
