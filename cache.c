@@ -46,6 +46,7 @@ static int      cache_thread_request;
 static int      xxx_n;
 static double   xxx_status;
 static int      xxx_cache_zoom;
+static int      xxx_work_zoom;
 
 //
 // prototypes
@@ -131,7 +132,7 @@ void cache_get_mbsval(short *mbsval)
 char *cache_status_str(void)
 {
     static char s[100];
-    sprintf(s, "%.0f %%  n=%d  cz=%d", xxx_status, xxx_n, xxx_cache_zoom);
+    sprintf(s, "%.0f %%  n=%d cz=%d wz=%d", xxx_status, xxx_n, xxx_cache_zoom, xxx_work_zoom);
     return s;
 }
 
@@ -265,9 +266,6 @@ static void *cache_thread(void *cx)
 
         // AAA spiral should first prioritize getting to window dimensions, and then the whole cache
         for (n = 0; n < 2*MAX_ZOOM; n++) {
-            xxx_n = n;
-            xxx_status = n / (2.*MAX_ZOOM) * 100;
-            xxx_cache_zoom = cache_zoom;
 
             zoom = (cache_zoom + dir*n + 2*MAX_ZOOM) % MAX_ZOOM;
             __sync_synchronize();  // XXX why
@@ -277,6 +275,11 @@ static void *cache_thread(void *cx)
 
             pixel_size = pixel_size_at_zoom0 * pow(2,-zoom);
             cache_ptr = &cache[zoom];
+
+            xxx_n = n;
+            xxx_status = n / (2.*MAX_ZOOM) * 100;
+            xxx_cache_zoom = cache_zoom;
+            xxx_work_zoom = zoom;
 
 
             // AAA
@@ -371,6 +374,7 @@ stop_check2:
         xxx_n = n;
         xxx_status = n / (2.*MAX_ZOOM) * 100;
         xxx_cache_zoom = cache_zoom;
+        xxx_work_zoom = zoom;
 
         end_tsc = tsc_timer();
         end_us = microsec_timer();
