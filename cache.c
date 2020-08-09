@@ -246,9 +246,13 @@ static void *cache_thread(void *cx)
 
     #define SPIRAL_OUTSIDE_WINDOW \
         (idx_a < win_min_x || idx_a > win_max_x || idx_b < win_min_y || idx_b > win_max_y)
-
     #define SPIRAL_COMPLETE_WINDOW \
         (cache_win_width >= cache_win_height ? idx_a < win_min_x : idx_b < win_min_y)
+
+    #define SPIRAL_OUTSIDE_CACHE \
+        (idx_a < 0 || idx_a >= CACHE_WIDTH || idx_b < 0 || idx_b >= CACHE_HEIGHT)
+    #define SPIRAL_COMPLETE_CACHE \
+        (CACHE_WIDTH >= CACHE_HEIGHT ? idx_a < 0 : idx_b < 0)
 
     cache_t      * cp;
     int            n, idx_a, idx_b, dir;
@@ -347,6 +351,36 @@ restart:
 
         // XXX phase2: 
         cache_status_phase = 2;
+        for (n = 0; n < MAX_ZOOM; n++) {
+            CHECK_FOR_STOP_REQUEST;
+
+            cache_status_percent_complete = 100 * n / MAX_ZOOM;
+            cache_status_zoom_lvl_inprog  = (cache_zoom + dir*n + MAX_ZOOM) % MAX_ZOOM;
+            __sync_synchronize();
+
+            cp = &cache[cache_status_zoom_lvl_inprog];
+
+            if (cp->phase2_spiral_done) {
+                continue;
+            }
+
+            while (true) {
+                CHECK_FOR_STOP_REQUEST;
+
+                cache_spiral_get_next(&cp->phase2_spiral, &idx_a, &idx_b);
+
+                if (SPIRAL_OUTSIDE_CACHE) {
+                    if (SPIRAL_COMPLETE_CACHE) {
+                        cp->phase2_spiral_done = true;
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+
+                COMPUTE_MBSVAL(idx_a,idx_b,cp);
+            }
+        }
     }
 }
 
