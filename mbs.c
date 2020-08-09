@@ -110,6 +110,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         unsigned long last_update_time_us;
         bool          full_screen;
         bool          display_info;
+        bool          help_enabled;
         unsigned int  color_lut[65536];  // xxx maxshort
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
@@ -136,6 +137,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->last_update_time_us = microsec_timer();
         vars->full_screen = false;
         vars->display_info = true;
+        vars->help_enabled = false;
 
         // xxx later vars->color_lut[65535]         = PIXEL_BLUE;
 
@@ -155,6 +157,12 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ------------------------
     // -------- RENDER --------
     // ------------------------
+
+    // xxx tbd
+    if (request == PANE_HANDLER_REQ_RENDER && vars->help_enabled) {
+        sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, "    HELP    ");
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
 
     if (request == PANE_HANDLER_REQ_RENDER) {
         int            idx = 0, pixel_x, pixel_y;
@@ -293,6 +301,15 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // -------- EVENT --------
     // -----------------------
 
+    if (request == PANE_HANDLER_REQ_EVENT && vars->help_enabled) {
+        switch (event->event_id) {
+        case '?': case SDL_EVENT_KEY_ESC:
+            vars->help_enabled = false;
+            break;
+        }
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
     // xxx reorder
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
@@ -321,8 +338,8 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
                 vars->auto_zoom_last = (vars->auto_zoom_last == 1 ? 2 : 1);
             }
             break;
-        case 't': {
-            vars->full_screen = !vars->full_screen;
+        case 'f': case SDL_EVENT_KEY_ESC: {
+            vars->full_screen = (event->event_id == 'f' ? !vars->full_screen : false);
             DEBUG("set full_screen to %d\n", vars->full_screen);
             sdl_full_screen(vars->full_screen);
             break; }
@@ -359,7 +376,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             }
             break;
         case '?':
-            // xxx help
+            vars->help_enabled = true;
             break;
         case 'i':
             vars->display_info = !vars->display_info;
