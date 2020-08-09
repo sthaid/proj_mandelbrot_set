@@ -6,18 +6,20 @@
 // defines
 //
 
-#define DEFAULT_WIN_WIDTH   600    // 1600
-#define DEFAULT_WIN_HEIGHT  600    // 900
+#define DEFAULT_WIN_WIDTH   1200   // 1600   xxx or something else
+#define DEFAULT_WIN_HEIGHT  800    // 900
 
-//#define INITIAL_CTR         (-0.75 + 0.0*I)
-#define INITIAL_CTR  (0.27808593632993183764 -0.47566405952660278933*I)
+//#define INITIAL_CTR    (-0.75 + 0.0*I)
+#define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
 
 //#define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
+// xxx don't define these
 #define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
 #define PIXEL_BLUE  ((  0 << 0) | (  0 << 8) | (255 << 16) | (255 << 24))
 
 //xxx comment on being am multiple
 #define ZOOM_STEP .1
+#define LAST_ZOOM  (MAX_ZOOM-1)
 
 //
 // typedefs
@@ -26,6 +28,9 @@
 //
 // variables
 //
+
+static double pixel_size_at_zoom0;
+static int    win_width, win_height;
 
 //
 // prototypes
@@ -38,11 +43,13 @@ static double zoom_step(double z, bool dir_is_incr);
 
 int main(int argc, char **argv)
 { 
-    //AAA-NEXT getopt   -g NNNxNNN   -f
+    // xxx add program options
+    // -g nnnxnnn
+    // -f
+    // -v   verbose
 
-    // AAA-NEXT
-    debug = false; // XXX set with '-d'  XXX and need seperate debugs for different files
-                   //   maybe   use *debug in the macro, and set this in the file
+    // xxx need seperate debugs for different files
+    debug = false; 
 
     // init sdl
     win_width  = DEFAULT_WIN_WIDTH;
@@ -57,10 +64,9 @@ int main(int argc, char **argv)
               DEFAULT_WIN_WIDTH, DEFAULT_WIN_HEIGHT, win_width, win_height);
     }
 
-
-    cache_init();
-    // xxx  ??
+    // xxx
     pixel_size_at_zoom0 = 4. / win_width;
+    cache_init(pixel_size_at_zoom0);
 
     // run the pane manger xxx what does this do
     sdl_pane_manager(
@@ -107,11 +113,12 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->pixels    = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
         vars->lcl_ctr   = INITIAL_CTR;
         vars->lcl_zoom  = 0;
-        vars->auto_zoom = 0;    //xxx needs defines
+        vars->auto_zoom = 0;
         vars->auto_zoom_last = 1;    //xxx needs defines
 
         // xxx later vars->color_lut[65535]         = PIXEL_BLUE;
 
+        // xxx routine to do this
         vars->color_lut[MBSVAL_IN_SET] = PIXEL_BLACK;  // xxx need a macro to make the pixel
         int i;
         for (i = 0; i < MBSVAL_IN_SET; i++) {
@@ -132,7 +139,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         int            idx = 0, pixel_x, pixel_y;
         unsigned int * pixels = vars->pixels;
 
-#if 0
+#if 0 //xxx put this on debug switch
         // debug
         static unsigned long time_last;
         unsigned long time_now = microsec_timer();
@@ -143,30 +150,27 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         // if window size has changed then update the pane's 
         // location within the window
-        int curr_win_width, curr_win_height;
-        sdl_get_window_size(&curr_win_width, &curr_win_height);
-        if (curr_win_width != win_width || curr_win_height != win_height) {
-            INFO("NEW WIN SIZE %d %d\n", curr_win_width, curr_win_height);
-            sdl_pane_update(pane_cx, 0, 0, curr_win_width, curr_win_height);
-            // AAA is it safe to change these without stopping the thread
-            win_width = curr_win_width;
-            win_height = curr_win_height;
-            //pixel_size_at_zoom0 = 4. / win_width;
-            // AAA pixel_size_at_zoom0
+        int new_win_width, new_win_height;
+        sdl_get_window_size(&new_win_width, &new_win_height);
+        if (new_win_width != win_width || new_win_height != win_height) {
+            //INFO("NEW WIN SIZE %d %d\n", new_win_width, new_win_height);
+            sdl_pane_update(pane_cx, 0, 0, new_win_width, new_win_height);
+            win_width = new_win_width;
+            win_height = new_win_height;
         }
 
         // if the texture hasn't been allocated yet, or the size of the
         // texture doesn't match the size of the pane then
         // re-allocate the texture and the pixels array
-        int curr_texture_width, curr_texture_height;
+        int new_texture_width, new_texture_height;
         if ((vars->texture == NULL) ||
-            ((sdl_query_texture(vars->texture, &curr_texture_width, &curr_texture_height), true) &&
-             (curr_texture_width != pane->w || curr_texture_height != pane->h)))
+            ((sdl_query_texture(vars->texture, &new_texture_width, &new_texture_height), true) &&
+             (new_texture_width != pane->w || new_texture_height != pane->h)))
         {
-            INFO("ALLOCATING TEXTURE AND PIXELS\n");
+            //INFO("ALLOCATING TEXTURE AND PIXELS\n");
             sdl_destroy_texture(vars->texture);
             free(vars->pixels);
-            INFO("   %d %d\n", pane->w, pane->h);
+            //INFO("   %d %d\n", pane->w, pane->h);
             vars->texture = sdl_create_texture(pane->w, pane->h);
             vars->pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
             pixels = vars->pixels;
@@ -178,7 +182,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             if (vars->lcl_zoom == 0) {
                 vars->auto_zoom = 0;
             }
-            if (vars->lcl_zoom == MAX_ZOOM - ZOOM_STEP) {  // xxx make limit MAX_ZOOM-1 instead ?
+            if (vars->lcl_zoom == LAST_ZOOM) {
                 vars->auto_zoom = 0;
             }
         }
@@ -224,22 +228,34 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         sdl_render_scaled_texture_ex(pane, &src, &dst, vars->texture);
 
-#if 0
-        // xxx temp
+        // status  xxx clean up
+        sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, 
+                          "Window: %d %d",
+                          win_width, win_height);
+        sdl_render_printf(pane, 0, ROW2Y(1,20), 20,  WHITE, BLACK, 
+                          "Zoom:   %0.2f",
+                          vars->lcl_zoom);   // xxx also autozoom status
+        int phase, percent_complete, zoom_lvl_inprog;
+        cache_status(&phase, &percent_complete, &zoom_lvl_inprog);
+        if (phase == 0) {
+            sdl_render_printf(pane, 0, ROW2Y(2,20), 20,  WHITE, BLACK, 
+                              "Cache:  Idle");
+        } else {
+            sdl_render_printf(pane, 0, ROW2Y(2,20), 20,  WHITE, BLACK, 
+                              "Cache:  Phase%d %d%% Zoom=%d",
+                              phase, percent_complete, zoom_lvl_inprog);
+        }
+
+#if 1 //xxx rectangle, later put it on debug switch
         rect_t loc = { pane->w/2-100, pane->h/2-100, 200, 200};
         sdl_render_rect(pane, &loc, 1, WHITE);
 #endif
 
-        // status
-        sdl_render_printf(pane, 0, 0, 20,  WHITE, BLACK, 
-                          "%s",
-                          cache_status_str());
 
         // register for events
         sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
         sdl_register_event(pane, pane, SDL_EVENT_PAN, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
         sdl_register_event(pane, pane, SDL_EVENT_ZOOM, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
-
 
         // return
         return PANE_HANDLER_RET_NO_ACTION;
@@ -259,7 +275,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             } else {
                 if (vars->lcl_zoom == 0) {
                     vars->auto_zoom = 1;
-                } else if (vars->lcl_zoom == MAX_ZOOM - ZOOM_STEP) {
+                } else if (vars->lcl_zoom == LAST_ZOOM) {
                     vars->auto_zoom = 2;
                 } else {
                     vars->auto_zoom = vars->auto_zoom_last;
@@ -308,10 +324,10 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             vars->lcl_zoom = 0;
             break;
         case 'z':
-            if (vars->lcl_zoom == MAX_ZOOM - ZOOM_STEP) {
+            if (vars->lcl_zoom == LAST_ZOOM) {
                 vars->lcl_zoom = 0;
             } else {
-                vars->lcl_zoom = MAX_ZOOM - ZOOM_STEP;
+                vars->lcl_zoom = LAST_ZOOM;
             }
             break;
         case 'q':
@@ -345,10 +361,8 @@ static double zoom_step(double z, bool dir_is_incr)
         z = nearbyint(z);
     }
 
-    // xxx check for near,
-    // xxx max out at MAX_ZOOM-1
     if (z < 0) z = 0;
-    if (z > MAX_ZOOM - ZOOM_STEP) z = MAX_ZOOM - ZOOM_STEP;
+    if (z > LAST_ZOOM) z = LAST_ZOOM;
 
     return z;
 }
