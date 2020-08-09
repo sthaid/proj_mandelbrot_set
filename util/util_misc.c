@@ -21,8 +21,6 @@
 
 #include "util_misc.h"
 
-bool debug;
-
 // -----------------  LOGMSG  --------------------------------------------
 
 void logmsg(char *lvl, const char *func, char *fmt, ...) 

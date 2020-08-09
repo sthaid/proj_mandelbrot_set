@@ -18,8 +18,6 @@
 
 // -----------------  LOGGING  -----------------------------------
 
-extern bool debug;
-
 #define INFO(fmt, args...) \
     do { \
         logmsg("INFO", __func__, fmt, ## args); \
@@ -32,12 +30,16 @@ extern bool debug;
     do { \
         logmsg("ERROR", __func__, fmt, ## args); \
     } while (0)
+#ifdef DEBUG_PRINT_ENABLED
 #define DEBUG(fmt, args...) \
     do { \
-        if (debug) { \
+        if (DEBUG_PRINT_ENABLED) { \
             logmsg("DEBUG", __func__, fmt, ## args); \
         } \
     } while (0)
+#else
+#define DEBUG(fmt, args...)
+#endif
 
 #define BLANK_LINE \
     do { \

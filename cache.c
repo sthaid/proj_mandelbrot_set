@@ -173,7 +173,6 @@ static void cache_adjust_mbsval_ctr(cache_t *cp)
 
     delta_x = nearbyint((creal(cp->ctr) - creal(cache_ctr)) / cp->pixel_size);
     delta_y = nearbyint((cimag(cp->ctr) - cimag(cache_ctr)) / cp->pixel_size);
-    //INFO("XXX zoom=%d  dx=%d  dy=%d\n", cp->zoom, delta_x,delta_y);
 
     if (delta_x == 0 && delta_y == 0) {
         return;
@@ -275,7 +274,7 @@ restart:
         // - mbs_call_count
         // - total_mbs_tsc
         if (start_tsc != 0) {
-            INFO("%s  mbs_call_count=%d  duration=%ld ms  mbs_calc=%ld %%\n",
+            DEBUG("%s  mbs_call_count=%d  duration=%ld ms  mbs_calc=%ld %%\n",
                  !was_stopped ? "DONE" : "STOPPED",
                  mbs_call_count,
                  (microsec_timer() - start_us) / 1000,
@@ -299,6 +298,8 @@ restart:
         __sync_synchronize();
 
         // xxx comment
+
+
         start_tsc      = tsc_timer();
         start_us       = microsec_timer();
         was_stopped    = false;
@@ -312,6 +313,7 @@ restart:
         dir = 1; // XXX
 
         // phase1: loop over all zoom levels
+        DEBUG("STARTING PHASE1\n");
         cache_status_phase = 1;
         for (n = 0; n < MAX_ZOOM; n++) {
             CHECK_FOR_STOP_REQUEST;
@@ -350,6 +352,7 @@ restart:
         }
 
         // XXX phase2: 
+        DEBUG("STARTING PHASE2\n");
         cache_status_phase = 2;
         for (n = 0; n < MAX_ZOOM; n++) {
             CHECK_FOR_STOP_REQUEST;

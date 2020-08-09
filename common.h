@@ -12,6 +12,7 @@
 #include <complex.h>
 #include <assert.h>
 
+#define DEBUG_PRINT_ENABLED (debug_enabled)
 #include <util_misc.h>
 
 //
@@ -26,6 +27,8 @@
 //
 // variables
 //
+
+bool debug_enabled;
 
 //
 // prototypes

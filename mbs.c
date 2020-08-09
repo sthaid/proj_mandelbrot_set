@@ -12,7 +12,6 @@
 //#define INITIAL_CTR    (-0.75 + 0.0*I)
 #define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
 
-//#define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
 // xxx don't define these
 #define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
 #define PIXEL_BLUE  ((  0 << 0) | (  0 << 8) | (255 << 16) | (255 << 24))
@@ -29,8 +28,9 @@
 // variables
 //
 
+static int    win_width   = DEFAULT_WIN_WIDTH;
+static int    win_height  = DEFAULT_WIN_HEIGHT;
 static double pixel_size_at_zoom0;
-static int    win_width, win_height;
 
 //
 // prototypes
@@ -43,32 +43,47 @@ static double zoom_step(double z, bool dir_is_incr);
 
 int main(int argc, char **argv)
 { 
-    // xxx add program options
-    // -g nnnxnnn
-    // -f
-    // -v   verbose
+    int requested_win_width;
+    int requested_win_height;
 
-    // xxx need seperate debugs for different files
-    debug = false; 
+    // get and process options
+    // -g NNNxNNN  : window size
+    // -v          : verbose
+    while (true) {
+        char opt_char = getopt(argc, argv, "g:v");
+        if (opt_char == -1) {
+            break;
+        }
+        switch (opt_char) {
+        case 'g': {
+            int cnt = sscanf(optarg, "%dx%d", &win_width, &win_height);
+            //xxx 2000 don't allow window to exceed cache size, either here or below
+            if (cnt != 2 || win_width < 100 || win_width > 2000 || win_height < 100 || win_height > 2000) {
+                FATAL("-g %s invalid\n", optarg);
+            }
+            break; }
+        case 'v':
+            debug_enabled = true;
+            break;
+        default:
+            return 1;
+        }
+    }
 
     // init sdl
-    win_width  = DEFAULT_WIN_WIDTH;
-    win_height = DEFAULT_WIN_HEIGHT;
+    requested_win_width  = win_width;
+    requested_win_height = win_height;
     if (sdl_init(&win_width, &win_height, true, false) < 0) {
         FATAL("sdl_init %dx%d failed\n", win_width, win_height);
     }
-    INFO("REQUESTED win_width=%d win_height=%d\n", DEFAULT_WIN_WIDTH, DEFAULT_WIN_HEIGHT);
+    INFO("REQUESTED win_width=%d win_height=%d\n", requested_win_width, requested_win_height);
     INFO("ACTUAL    win_width=%d win_height=%d\n", win_width, win_height);
-    if (win_width != DEFAULT_WIN_WIDTH || win_height != DEFAULT_WIN_HEIGHT) { //xxx remove later
-        FATAL("failed to create window %dx%d, got instead %dx%d\n",
-              DEFAULT_WIN_WIDTH, DEFAULT_WIN_HEIGHT, win_width, win_height);
-    }
 
     // xxx
     pixel_size_at_zoom0 = 4. / win_width;
     cache_init(pixel_size_at_zoom0);
 
-    // run the pane manger xxx what does this do
+    // run the pane manger xxx describe what does this do
     sdl_pane_manager(
         NULL,           // context
         NULL,           // called prior to pane handlers
@@ -93,6 +108,8 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         int           auto_zoom;
         int           auto_zoom_last;
         unsigned long last_update_time_us;
+        bool          full_screen;
+        bool          display_info;
         unsigned int  color_lut[65536];  // xxx maxshort
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
@@ -117,6 +134,8 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->auto_zoom = 0;
         vars->auto_zoom_last = 1;    //xxx needs defines
         vars->last_update_time_us = microsec_timer();
+        vars->full_screen = false;
+        vars->display_info = true;
 
         // xxx later vars->color_lut[65535]         = PIXEL_BLUE;
 
@@ -146,14 +165,14 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         // debug
         update_intvl_ms = (time_now_us - vars->last_update_time_us) / 1000;
         vars->last_update_time_us = time_now_us;
-        // DEBUG INFO("*** %ld ms\n", update_intvl_ms);
+        //DEBUG("*** INTVL=%ld ms ***\n", update_intvl_ms);
 
         // if window size has changed then update the pane's 
         // location within the window
         int new_win_width, new_win_height;
         sdl_get_window_size(&new_win_width, &new_win_height);
         if (new_win_width != win_width || new_win_height != win_height) {
-            //INFO("NEW WIN SIZE %d %d\n", new_win_width, new_win_height);
+            DEBUG("NEW WIN SIZE w=%d %d\n", new_win_width, new_win_height);
             sdl_pane_update(pane_cx, 0, 0, new_win_width, new_win_height);
             win_width = new_win_width;
             win_height = new_win_height;
@@ -167,10 +186,9 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             ((sdl_query_texture(vars->texture, &new_texture_width, &new_texture_height), true) &&
              (new_texture_width != pane->w || new_texture_height != pane->h)))
         {
-            //INFO("ALLOCATING TEXTURE AND PIXELS\n");
+            DEBUG("ALLOCATING TEXTURE AND PIXELS w=%d h=%d\n", pane->w, pane->h);
             sdl_destroy_texture(vars->texture);
             free(vars->pixels);
-            //INFO("   %d %d\n", pane->w, pane->h);
             vars->texture = sdl_create_texture(pane->w, pane->h);
             vars->pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
             pixels = vars->pixels;
@@ -229,31 +247,38 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         sdl_render_scaled_texture_ex(pane, &src, &dst, vars->texture);
 
         // status  xxx clean up
-        sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, 
-                          "Window: %d %d",
-                          win_width, win_height);
-        sdl_render_printf(pane, 0, ROW2Y(1,20), 20,  WHITE, BLACK, 
-                          "Zoom:   %0.2f",
-                          vars->lcl_zoom);   // xxx also autozoom status
-        sdl_render_printf(pane, 0, ROW2Y(2,20), 20,  WHITE, BLACK, 
-                          "Intvl:  %ld ms",
-                          update_intvl_ms);
-        int phase, percent_complete, zoom_lvl_inprog;
-        cache_status(&phase, &percent_complete, &zoom_lvl_inprog);
-        if (phase == 0) {
-            sdl_render_printf(pane, 0, ROW2Y(3,20), 20,  WHITE, BLACK, 
-                              "Cache:  Idle");
-        } else {
-            sdl_render_printf(pane, 0, ROW2Y(3,20), 20,  WHITE, BLACK, 
-                              "Cache:  Phase%d %d%% Zoom=%d",
-                              phase, percent_complete, zoom_lvl_inprog);
+        if (vars->display_info) {
+            int row = 0;
+            int phase, percent_complete, zoom_lvl_inprog;
+
+            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
+                              "Window: %d %d",
+                              win_width, win_height);
+            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
+                              "Zoom:   %0.2f",
+                              vars->lcl_zoom);   // xxx also autozoom status
+            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
+                              "Intvl:  %ld ms",
+                              update_intvl_ms);
+            cache_status(&phase, &percent_complete, &zoom_lvl_inprog);
+            if (phase == 0) {
+                sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
+                                  "Cache:  Idle");
+            } else {
+                sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
+                                  "Cache:  Phase%d %d%% Zoom=%d",
+                                  phase, percent_complete, zoom_lvl_inprog);
+            }
+            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
+                              "Debug:  %s",
+                              debug_enabled ? "True" : "False");
         }
 
-#if 1 //xxx rectangle, later put it on debug switch
-        rect_t loc = { pane->w/2-100, pane->h/2-100, 200, 200};
-        sdl_render_rect(pane, &loc, 1, WHITE);
-#endif
-
+        // xxx square ?
+        if (debug_enabled) {
+            rect_t loc = { pane->w/2-100, pane->h/2-100, 200, 200};
+            sdl_render_rect(pane, &loc, 1, WHITE);
+        }
 
         // register for events
         sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
@@ -268,6 +293,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // -------- EVENT --------
     // -----------------------
 
+    // xxx reorder
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
         case 'a':
@@ -296,16 +322,15 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             }
             break;
         case 't': {
-            static bool fullscreen; // xxx vars
-            fullscreen = !fullscreen;
-            INFO("setting fullscreen to %d\n", fullscreen);
-            sdl_full_screen(fullscreen);
+            vars->full_screen = !vars->full_screen;
+            DEBUG("set full_screen to %d\n", vars->full_screen);
+            sdl_full_screen(vars->full_screen);
             break; }
         case '+': case '=': case '-':
             vars->lcl_zoom = zoom_step(vars->lcl_zoom, 
                                        event->event_id == '+' || event->event_id == '=');
             break;
-        case SDL_EVENT_ZOOM:
+        case SDL_EVENT_ZOOM:  // xxx combine with above
             if (event->mouse_wheel.delta_y > 0) {
                 vars->lcl_zoom = zoom_step(vars->lcl_zoom, true);
             } else if (event->mouse_wheel.delta_y < 0) {
@@ -332,6 +357,15 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             } else {
                 vars->lcl_zoom = LAST_ZOOM;
             }
+            break;
+        case '?':
+            // xxx help
+            break;
+        case 'i':
+            vars->display_info = !vars->display_info;
+            break;
+        case 'd': 
+            debug_enabled = !debug_enabled;
             break;
         case 'q':
             return PANE_HANDLER_RET_PANE_TERMINATE;
