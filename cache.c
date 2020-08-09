@@ -173,7 +173,7 @@ static void cache_adjust_mbsval_ctr(cache_t *cp)
 
     delta_x = nearbyint((creal(cp->ctr) - creal(cache_ctr)) / cp->pixel_size);
     delta_y = nearbyint((cimag(cp->ctr) - cimag(cache_ctr)) / cp->pixel_size);
-    INFO("XXX zoom=%d  dx=%d  dy=%d\n", cp->zoom, delta_x,delta_y);
+    //INFO("XXX zoom=%d  dx=%d  dy=%d\n", cp->zoom, delta_x,delta_y);
 
     if (delta_x == 0 && delta_y == 0) {
         return;

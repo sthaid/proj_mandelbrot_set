@@ -92,6 +92,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         double        lcl_zoom;
         int           auto_zoom;
         int           auto_zoom_last;
+        unsigned long last_update_time_us;
         unsigned int  color_lut[65536];  // xxx maxshort
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
@@ -115,6 +116,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->lcl_zoom  = 0;
         vars->auto_zoom = 0;
         vars->auto_zoom_last = 1;    //xxx needs defines
+        vars->last_update_time_us = microsec_timer();
 
         // xxx later vars->color_lut[65535]         = PIXEL_BLUE;
 
@@ -138,15 +140,13 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     if (request == PANE_HANDLER_REQ_RENDER) {
         int            idx = 0, pixel_x, pixel_y;
         unsigned int * pixels = vars->pixels;
+        unsigned long  time_now_us = microsec_timer();
+        unsigned long  update_intvl_ms;
 
-#if 0 //xxx put this on debug switch
         // debug
-        static unsigned long time_last;
-        unsigned long time_now = microsec_timer();
-        unsigned long delta_us = time_now - time_last;
-        time_last = time_now;
-        INFO("*** %ld ms\n", delta_us/1000);
-#endif
+        update_intvl_ms = (time_now_us - vars->last_update_time_us) / 1000;
+        vars->last_update_time_us = time_now_us;
+        // DEBUG INFO("*** %ld ms\n", update_intvl_ms);
 
         // if window size has changed then update the pane's 
         // location within the window
@@ -235,13 +235,16 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         sdl_render_printf(pane, 0, ROW2Y(1,20), 20,  WHITE, BLACK, 
                           "Zoom:   %0.2f",
                           vars->lcl_zoom);   // xxx also autozoom status
+        sdl_render_printf(pane, 0, ROW2Y(2,20), 20,  WHITE, BLACK, 
+                          "Intvl:  %ld ms",
+                          update_intvl_ms);
         int phase, percent_complete, zoom_lvl_inprog;
         cache_status(&phase, &percent_complete, &zoom_lvl_inprog);
         if (phase == 0) {
-            sdl_render_printf(pane, 0, ROW2Y(2,20), 20,  WHITE, BLACK, 
+            sdl_render_printf(pane, 0, ROW2Y(3,20), 20,  WHITE, BLACK, 
                               "Cache:  Idle");
         } else {
-            sdl_render_printf(pane, 0, ROW2Y(2,20), 20,  WHITE, BLACK, 
+            sdl_render_printf(pane, 0, ROW2Y(3,20), 20,  WHITE, BLACK, 
                               "Cache:  Phase%d %d%% Zoom=%d",
                               phase, percent_complete, zoom_lvl_inprog);
         }
