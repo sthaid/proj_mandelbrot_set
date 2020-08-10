@@ -48,7 +48,7 @@ int main(int argc, char **argv)
 
     // get and process options
     // -g NNNxNNN  : window size
-    // -v          : verbose
+    // -d          : debug mode
     while (true) {
         char opt_char = getopt(argc, argv, "g:v");
         if (opt_char == -1) {
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
                 FATAL("-g %s invalid\n", optarg);
             }
             break; }
-        case 'v':
+        case 'd':
             debug_enabled = true;
             break;
         default:
@@ -310,9 +310,69 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
-    // xxx reorder
     if (request == PANE_HANDLER_REQ_EVENT) {
         switch (event->event_id) {
+
+        // --- GENERAL CONTROLS ---
+        case 'q':
+            return PANE_HANDLER_RET_PANE_TERMINATE;
+            break;
+        case '?':
+            vars->help_enabled = true;
+            break;
+        case 'i':
+            vars->display_info = !vars->display_info;
+            break;
+        case 'd': 
+            debug_enabled = !debug_enabled;
+            break;
+
+        // --- FULL SCREEN ---
+        case 'f': case SDL_EVENT_KEY_ESC: {
+            vars->full_screen = (event->event_id == 'f' ? !vars->full_screen : false);
+            DEBUG("set full_screen to %d\n", vars->full_screen);
+            sdl_full_screen(vars->full_screen);
+            break; }
+
+        // --- RESET CTR AND ZOOM TO DEFAULT ---
+        case 'r':
+            vars->lcl_ctr  = INITIAL_CTR;
+            vars->lcl_zoom = 0;
+            break;
+
+        // --- CHANGE CENTER ---
+        case SDL_EVENT_PAN: {
+            double pixel_size = pixel_size_at_zoom0 * pow(2,-vars->lcl_zoom);
+            vars->lcl_ctr += -(event->mouse_motion.delta_x * pixel_size) + 
+                             -(event->mouse_motion.delta_y * pixel_size) * I;
+            break; }
+        case SDL_EVENT_CENTER: {
+            double pixel_size = pixel_size_at_zoom0 * pow(2,-vars->lcl_zoom);
+            vars->lcl_ctr += ((event->mouse_click.x - (pane->w/2)) * pixel_size) + 
+                             ((event->mouse_click.y - (pane->h/2)) * pixel_size) * I;
+            break; }
+
+        // --- CHANGE ZOOM ---
+        case '+': case '=': case '-':
+            vars->lcl_zoom = zoom_step(vars->lcl_zoom, 
+                                       event->event_id == '+' || event->event_id == '=');
+            break;
+        case SDL_EVENT_ZOOM:
+            if (event->mouse_wheel.delta_y > 0) {
+                vars->lcl_zoom = zoom_step(vars->lcl_zoom, true);
+            } else if (event->mouse_wheel.delta_y < 0) {
+                vars->lcl_zoom = zoom_step(vars->lcl_zoom, false);
+            }
+            break;
+        case 'z':
+            if (vars->lcl_zoom == LAST_ZOOM) {
+                vars->lcl_zoom = 0;
+            } else {
+                vars->lcl_zoom = LAST_ZOOM;
+            }
+            break;
+
+        // --- AUTO ZOOM ---
         case 'a':
             // xxx comment
             if (vars->auto_zoom != 0) {
@@ -338,56 +398,30 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
                 vars->auto_zoom_last = (vars->auto_zoom_last == 1 ? 2 : 1);
             }
             break;
-        case 'f': case SDL_EVENT_KEY_ESC: {
-            vars->full_screen = (event->event_id == 'f' ? !vars->full_screen : false);
-            DEBUG("set full_screen to %d\n", vars->full_screen);
-            sdl_full_screen(vars->full_screen);
-            break; }
-        case '+': case '=': case '-':
-            vars->lcl_zoom = zoom_step(vars->lcl_zoom, 
-                                       event->event_id == '+' || event->event_id == '=');
-            break;
-        case SDL_EVENT_ZOOM:  // xxx combine with above
-            if (event->mouse_wheel.delta_y > 0) {
-                vars->lcl_zoom = zoom_step(vars->lcl_zoom, true);
-            } else if (event->mouse_wheel.delta_y < 0) {
-                vars->lcl_zoom = zoom_step(vars->lcl_zoom, false);
+
+        // --- READ AND WRITE FILES ---
+        case '0'...'9': {
+            complex new_ctr;
+            double  new_zoom;
+            bool    succ;
+            int     file_id = (event->event_id - '0');
+            succ = cache_read(file_id, &new_ctr, &new_zoom);
+            if (!succ) {
+                break;
             }
-            break;
-        case SDL_EVENT_PAN: {
-            double pixel_size = pixel_size_at_zoom0 * pow(2,-vars->lcl_zoom);
-            vars->lcl_ctr += -(event->mouse_motion.delta_x * pixel_size) + 
-                             -(event->mouse_motion.delta_y * pixel_size) * I;
+            vars->lcl_ctr = new_ctr;
+            vars->lcl_zoom = new_zoom;
             break; }
-        case SDL_EVENT_CENTER: {
-            double pixel_size = pixel_size_at_zoom0 * pow(2,-vars->lcl_zoom);
-            vars->lcl_ctr += ((event->mouse_click.x - (pane->w/2)) * pixel_size) + 
-                             ((event->mouse_click.y - (pane->h/2)) * pixel_size) * I;
+        case SDL_EVENT_KEY_CTRL+'0'...SDL_EVENT_KEY_CTRL+'9': {
+            int file_id = (event->event_id - ('0'+SDL_EVENT_KEY_CTRL));
+            cache_write(file_id, vars->lcl_ctr, vars->lcl_zoom, true);
             break; }
-        case 'r':
-            vars->lcl_ctr  = INITIAL_CTR;
-            vars->lcl_zoom = 0;
-            break;
-        case 'z':
-            if (vars->lcl_zoom == LAST_ZOOM) {
-                vars->lcl_zoom = 0;
-            } else {
-                vars->lcl_zoom = LAST_ZOOM;
-            }
-            break;
-        case '?':
-            vars->help_enabled = true;
-            break;
-        case 'i':
-            vars->display_info = !vars->display_info;
-            break;
-        case 'd': 
-            debug_enabled = !debug_enabled;
-            break;
-        case 'q':
-            return PANE_HANDLER_RET_PANE_TERMINATE;
-            break;
+        case SDL_EVENT_KEY_ALT+'0'...SDL_EVENT_KEY_ALT+'9': {
+            int file_id = (event->event_id - ('0'+SDL_EVENT_KEY_ALT));
+            cache_write(file_id, vars->lcl_ctr, vars->lcl_zoom, false);
+            break; }
         }
+
         return PANE_HANDLER_RET_NO_ACTION;
     }
 

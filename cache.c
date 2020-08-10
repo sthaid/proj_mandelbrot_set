@@ -16,6 +16,10 @@
 #define CACHE_WIDTH  2000
 #define CACHE_HEIGHT 2000
 
+#define MBSVAL_BYTES   (CACHE_HEIGHT*CACHE_WIDTH*2)
+
+#define MAGIC_MBS_FILE 0x11224567
+
 //
 // typedefs
 //
@@ -39,6 +43,12 @@ typedef struct {
     bool     phase2_spiral_done;
 } cache_t;
 
+typedef struct {
+    int     magic;
+    complex ctr;
+    double  zoom;
+} file_hdr_t;
+
 //
 // variables
 //
@@ -47,10 +57,11 @@ static complex  cache_ctr;
 static int      cache_zoom;
 static int      cache_win_width;
 static int      cache_win_height;
-
 static cache_t  cache[MAX_ZOOM];
-static int      cache_thread_request;
+
 static spiral_t cache_initial_spiral;
+static int      cache_thread_request;
+static complex  cache_thread_finished_for_cache_ctr;
 
 static int      cache_status_phase;
 static int      cache_status_percent_complete;
@@ -66,6 +77,8 @@ static void cache_thread_issue_request(int req);
 static void cache_spiral_init(spiral_t *s, int x, int y);
 static void cache_spiral_get_next(spiral_t *s, int *x, int *y);
 
+#define CTR_INVALID  (999 + 0 * I)
+
 // -----------------  API  ------------------------------------------------------------
 
 // xxx comments
@@ -79,10 +92,10 @@ void cache_init(double pixel_size_at_zoom0)
     for (zoom = 0; zoom < MAX_ZOOM; zoom++) {
         cache_t *cp = &cache[zoom];
 
-        cp->mbsval = malloc(CACHE_HEIGHT*CACHE_WIDTH*2);
+        cp->mbsval = malloc(MBSVAL_BYTES);
 
-        memset(cp->mbsval, 0xff, CACHE_HEIGHT*CACHE_WIDTH*2);
-        cp->ctr                = 999. + 0 * I;
+        memset(cp->mbsval, 0xff, MBSVAL_BYTES);
+        cp->ctr                = CTR_INVALID;
         cp->zoom               = zoom;
         cp->pixel_size         = pixel_size_at_zoom0 * pow(2,-zoom);
         cp->phase1_spiral      = cache_initial_spiral;
@@ -163,6 +176,163 @@ void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog)
     *zoom_lvl_inprog  = cache_status_zoom_lvl_inprog;
 }
 
+bool cache_write(int file_id, complex ctr, double zoom, bool require_cache_thread_finished)
+{
+    int        fd, len, z;
+    char       file_name[100], errstr[200];
+    file_hdr_t hdr;
+    
+    sprintf(file_name, "mbs_%d.dat", file_id);
+    errstr[0] = '\0';
+    fd = -1;
+
+    INFO("starting, file_name=%s\n", file_name);
+
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
+
+    if (require_cache_thread_finished) {
+        if (ctr != cache_thread_finished_for_cache_ctr) {
+            sprintf(errstr, "cache thread is not finished");
+            goto done;
+        }
+    }
+
+    if (ctr != cache_ctr) {
+        sprintf(errstr, "ctr notequal cache_ctr");
+        goto done;
+    }
+
+    fd = open(file_name, O_CREAT|O_TRUNC|O_WRONLY, 0644);
+    if (fd < 0) {
+        sprintf(errstr, "open %s, %s", file_name, strerror(errno));
+        goto done;
+    }
+
+    hdr.magic = MAGIC_MBS_FILE;
+    hdr.ctr   = ctr;
+    hdr.zoom  = zoom;
+    len = write(fd, &hdr, sizeof(hdr));
+    if (len != sizeof(file_hdr_t)) {
+        sprintf(errstr, "write-hdr %s, %s", file_name, strerror(errno));
+        goto done;
+    }
+
+    for (z = 0; z < MAX_ZOOM; z++) {
+        cache_t cache_tmp = cache[z];
+        cache_tmp.mbsval = NULL;
+        len = write(fd, &cache_tmp, sizeof(cache_tmp));
+        if (len != sizeof(cache_tmp)) {
+            sprintf(errstr, "write-cache[%d] %s, %s", z, file_name, strerror(errno));
+            goto done;
+        }
+
+        len = write(fd, cache[z].mbsval, MBSVAL_BYTES);
+        if (len != MBSVAL_BYTES) {
+            sprintf(errstr, "write-mbsval[%d] %s, %s", z, file_name, strerror(errno));
+            goto done;
+        }
+    }
+
+done:
+    if (errstr[0] != '\0') {
+        ERROR("%s\n", errstr);
+    } else {
+        INFO("success\n");
+    }
+    if (fd != -1) {
+        close(fd);
+    }
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
+    return errstr[0] == '\0';
+}
+
+bool cache_read(int file_id, complex *ctr, double *zoom)
+{
+    int         fd, len, z, rc;
+    char        file_name[100], errstr[200];
+    file_hdr_t  hdr;
+    short     (*mbsval)[CACHE_WIDTH][CACHE_HEIGHT] = NULL;
+    struct stat statbuf;
+
+    #define EXPECTED_FILE_SIZE (sizeof(file_hdr_t) + MAX_ZOOM * (sizeof(cache_t) + MBSVAL_BYTES))
+
+    sprintf(file_name, "mbs_%d.dat", file_id);
+    errstr[0] = '\0';
+    fd = -1;
+
+    INFO("starting, file_name=%s\n", file_name);
+
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
+
+    fd = open(file_name, O_RDONLY);
+    if (fd < 0) {
+        sprintf(errstr, "open %s, %s", file_name, strerror(errno));
+        goto done;
+    }
+
+    rc = fstat(fd, &statbuf);
+    if (rc < 0) {
+        sprintf(errstr, "fstat %s, %s", file_name, strerror(errno));
+        goto done;
+    }
+    if (statbuf.st_size != EXPECTED_FILE_SIZE) {
+        sprintf(errstr, "file size %ld not expected %ld\n", statbuf.st_size, EXPECTED_FILE_SIZE);
+        goto done;
+    }
+
+    len = read(fd, &hdr, sizeof(hdr));
+    if (len != sizeof(file_hdr_t)) {
+        sprintf(errstr, "read-hdr %s, %s", file_name, strerror(errno));
+        goto done;
+    }
+
+    if (hdr.magic != MAGIC_MBS_FILE) {
+        sprintf(errstr, "bad hdr.magic = 0x%x\n", hdr.magic);
+        goto done;
+    }
+
+    for (z = 0; z < MAX_ZOOM; z++) {
+        cache_t cache_tmp = cache[z];
+        len = read(fd, &cache_tmp, sizeof(cache_tmp));
+        if (len != sizeof(cache_tmp)) {
+            sprintf(errstr, "read-cache[%d] %s, %s", z, file_name, strerror(errno));
+            goto done;
+        }
+
+        mbsval = malloc(MBSVAL_BYTES);
+        len = read(fd, mbsval, MBSVAL_BYTES);
+        if (len != MBSVAL_BYTES) {
+            sprintf(errstr, "read-mbsval[%d] %s, %s", z, file_name, strerror(errno));
+            goto done;
+        }
+
+        cache_tmp.mbsval = mbsval;
+        free(cache[z].mbsval);
+        cache[z] = cache_tmp;
+        mbsval = NULL;
+    }
+
+    *ctr       = hdr.ctr;
+    *zoom      = hdr.zoom;
+    cache_ctr  = hdr.ctr;
+    cache_zoom = floor(hdr.zoom);
+
+done:
+    if (errstr[0] != '\0') {
+        ERROR("%s\n", errstr);
+    } else {
+        INFO("success\n");
+    }
+    if (fd != -1) {
+        close(fd);
+    }
+    if (mbsval) {
+        free(mbsval);
+    }
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
+    return errstr[0] == '\0';
+}
+
 // -----------------  PRIVATE - ADJUST xxxxx NAME ?  -----------------------------------
 
 static void cache_adjust_mbsval_ctr(cache_t *cp)
@@ -178,7 +348,7 @@ static void cache_adjust_mbsval_ctr(cache_t *cp)
         return;
     }
 
-    new_mbsval = malloc(CACHE_HEIGHT*CACHE_WIDTH*2);
+    new_mbsval = malloc(MBSVAL_BYTES);
     old_mbsval = cp->mbsval;
 
     for (new_y = 0; new_y < CACHE_HEIGHT; new_y++) {
@@ -299,6 +469,7 @@ restart:
 
         // xxx comment
 
+        cache_thread_finished_for_cache_ctr = CTR_INVALID;
 
         start_tsc      = tsc_timer();
         start_us       = microsec_timer();
@@ -384,6 +555,9 @@ restart:
                 COMPUTE_MBSVAL(idx_a,idx_b,cp);
             }
         }
+
+        // xxx
+        cache_thread_finished_for_cache_ctr = cache_ctr;
     }
 }
 
