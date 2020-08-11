@@ -75,6 +75,7 @@ typedef void * texture_t;
 #define SDL_EVENT_KEY_SHIFT_DOWN_ARROW   0x10b
 #define SDL_EVENT_KEY_SHIFT_LEFT_ARROW   0x10c
 #define SDL_EVENT_KEY_SHIFT_RIGHT_ARROW  0x10d
+#define SDL_EVENT_KEY_F(n)               (0x10f+(n))  // n=1...12
 #define SDL_EVENT_KEY_CTRL               0x1000
 #define SDL_EVENT_KEY_ALT                0x2000
 // - window events

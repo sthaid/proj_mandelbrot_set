@@ -107,12 +107,17 @@ void cache_init(double pixel_size_at_zoom0)
     pthread_create(&id, NULL, cache_thread, NULL);
 }
 
-void cache_param_change(complex ctr, int zoom, int win_width, int win_height)
+void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bool force)
 {
     int z;
 
     // if zoom, ctr and window dims remain the same then return
-    if (zoom == cache_zoom && ctr == cache_ctr && win_width == cache_win_width && win_height == cache_win_height) {
+    if (zoom == cache_zoom && 
+        ctr == cache_ctr && 
+        win_width == cache_win_width && 
+        win_height == cache_win_height &&
+        force == false)
+    {
         return;
     }
 

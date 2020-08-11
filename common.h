@@ -41,7 +41,7 @@ bool debug_enabled;
 int mandelbrot_set(complex c);
 
 void cache_init(double pixel_size_at_zoom0);
-void cache_param_change(complex ctr, int zoom, int win_width, int win_height);
+void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bool force);
 void cache_get_mbsval(short *mbsval);
 void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog);
 bool cache_write(int file_id, complex ctr, double zoom, bool require_cache_thread_finished);

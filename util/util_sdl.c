@@ -1056,6 +1056,8 @@ sdl_event_t * sdl_poll_event(void)
                 event_id = !shift ? SDL_EVENT_KEY_LEFT_ARROW : SDL_EVENT_KEY_SHIFT_LEFT_ARROW;
             } else if (key == SDLK_RIGHT) {
                 event_id = !shift ? SDL_EVENT_KEY_RIGHT_ARROW : SDL_EVENT_KEY_SHIFT_RIGHT_ARROW;
+            } else if (key >= SDLK_F1 && key <= SDLK_F12) {
+                event_id = key - SDLK_F1 + SDL_EVENT_KEY_F(1);
             }
 
             // adjust event_id if ctrl and/or alt is active

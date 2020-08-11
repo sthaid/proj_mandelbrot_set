@@ -13,6 +13,7 @@
 #define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
 
 // xxx don't define these
+#define PIXEL_WHITE ((  255 << 0) | ( 255 << 8) | ( 255 << 16) | (255 << 24))
 #define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
 #define PIXEL_BLUE  ((  0 << 0) | (  0 << 8) | (255 << 16) | (255 << 24))
 
@@ -111,6 +112,8 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         bool          full_screen;
         bool          display_info;
         bool          help_enabled;
+        bool          display_in_color;
+        bool          force;
         unsigned int  color_lut[65536];  // xxx maxshort
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
@@ -128,16 +131,18 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         vars = pane_cx->vars = calloc(1,sizeof(*vars));
 
-        vars->texture   = sdl_create_texture(pane->w, pane->h);
-        vars->pixels    = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
-        vars->lcl_ctr   = INITIAL_CTR;
-        vars->lcl_zoom  = 0;
-        vars->auto_zoom = 0;
-        vars->auto_zoom_last = 1;    //xxx needs defines
+        vars->texture             = sdl_create_texture(pane->w, pane->h);
+        vars->pixels              = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
+        vars->lcl_ctr             = INITIAL_CTR;
+        vars->lcl_zoom            = 0;
+        vars->auto_zoom           = 0;
+        vars->auto_zoom_last      = 1;    //xxx needs defines
         vars->last_update_time_us = microsec_timer();
-        vars->full_screen = false;
-        vars->display_info = true;
-        vars->help_enabled = false;
+        vars->full_screen         = false;
+        vars->display_info        = true;
+        vars->help_enabled        = false;
+        vars->display_in_color    = true;
+        vars->force               = false;
 
         // xxx later vars->color_lut[65535]         = PIXEL_BLUE;
 
@@ -214,18 +219,33 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         }
 
         // inform mandelbrot set cache of the current ctr and zoom
-        cache_param_change(vars->lcl_ctr, floor(vars->lcl_zoom), win_width, win_height);
+        if (vars->force) {
+            INFO("debug force cache_thread to run\n");
+        }
+        cache_param_change(vars->lcl_ctr, floor(vars->lcl_zoom), win_width, win_height, vars->force);
+        vars->force = false;
 
         // get the cached mandelbrot set values; and
         // convert them to pixel color values
         short * mbsval = malloc(win_height*win_width*2);  //xxx make this unsigned
         cache_get_mbsval(mbsval);
-        for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
-            for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
-                pixels[idx] = (mbsval[idx] == MBSVAL_NOT_COMPUTED 
-                               ? PIXEL_BLUE
-                               : vars->color_lut[mbsval[idx]]);
-                idx++;
+        if (vars->display_in_color) {
+            for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
+                for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
+                    pixels[idx] = (mbsval[idx] == MBSVAL_NOT_COMPUTED 
+                                ? PIXEL_BLUE
+                                : vars->color_lut[mbsval[idx]]);
+                    idx++;
+                }
+            }
+        } else {  // black and white
+            for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
+                for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
+                    pixels[idx] = (mbsval[idx] == MBSVAL_NOT_COMPUTED ? PIXEL_BLUE  :
+                                   mbsval[idx] == MBSVAL_IN_SET       ? PIXEL_BLACK
+                                                                      : PIXEL_WHITE);
+                    idx++;
+                }
             }
         }
         free(mbsval);
@@ -323,8 +343,13 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         case 'i':
             vars->display_info = !vars->display_info;
             break;
-        case 'd': 
+
+        // --- DEBUG CONTROLS ---
+        case SDL_EVENT_KEY_F(1):
             debug_enabled = !debug_enabled;
+            break;
+        case SDL_EVENT_KEY_F(2):
+            vars->force = true;
             break;
 
         // --- FULL SCREEN ---
@@ -333,6 +358,11 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             DEBUG("set full_screen to %d\n", vars->full_screen);
             sdl_full_screen(vars->full_screen);
             break; }
+
+        // --- COLOR CONTROLS ---
+        case 'c':
+            vars->display_in_color = !vars->display_in_color;
+            break;
 
         // --- RESET CTR AND ZOOM TO DEFAULT ---
         case 'r':
