@@ -6,19 +6,13 @@
 // defines
 //
 
-#define DEFAULT_WIN_WIDTH   1200   // 1600   xxx or something else
-#define DEFAULT_WIN_HEIGHT  800    // 900
+#define DEFAULT_WIN_WIDTH   1200
+#define DEFAULT_WIN_HEIGHT  800
 
 //#define INITIAL_CTR    (-0.75 + 0.0*I)
 #define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
 
-// xxx don't define these
-#define PIXEL_WHITE ((  255 << 0) | ( 255 << 8) | ( 255 << 16) | (255 << 24))
-#define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
-#define PIXEL_BLUE  ((  0 << 0) | (  0 << 8) | (255 << 16) | (255 << 24))
-
-//xxx comment on being am multiple
-#define ZOOM_STEP .1
+#define ZOOM_STEP  .1   // must be a submultiple of 1
 #define LAST_ZOOM  (MAX_ZOOM-1)
 
 //
@@ -39,6 +33,7 @@ static double pixel_size_at_zoom0;
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
 static double zoom_step(double z, bool dir_is_incr);
+static void init_color_lut(bool color, unsigned int *color_lut);
 
 // -----------------  MAIN  -------------------------------------------------
 
@@ -84,7 +79,10 @@ int main(int argc, char **argv)
     pixel_size_at_zoom0 = 4. / win_width;
     cache_init(pixel_size_at_zoom0);
 
-    // run the pane manger xxx describe what does this do
+    // run the pane manger;
+    // the sdl_pane_manager is the runtime loop, and it will repeatedly call the pane_hndlr,
+    //  first to initialize the pane_hndlr and subsequently to render the display and
+    //  process events
     sdl_pane_manager(
         NULL,           // context
         NULL,           // called prior to pane handlers
@@ -114,7 +112,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         bool          help_enabled;
         bool          display_in_color;
         bool          force;
-        unsigned int  color_lut[65536];  // xxx maxshort
+        unsigned int  color_lut[65536];
     } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
 
@@ -144,17 +142,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->display_in_color    = true;
         vars->force               = false;
 
-        // xxx later vars->color_lut[65535]         = PIXEL_BLUE;
-
-        // xxx routine to do this
-        vars->color_lut[MBSVAL_IN_SET] = PIXEL_BLACK;  // xxx need a macro to make the pixel
-        int i;
-        for (i = 0; i < MBSVAL_IN_SET; i++) {
-            unsigned char r,g,b;
-            double wavelen = 400. + i * ((700. - 400.) / (MBSVAL_IN_SET-1));
-            sdl_wavelen_to_rgb(wavelen, &r, &g, &b);
-            vars->color_lut[i] = (r << 0) | (  g << 8) | (b << 16) | (255 << 24); // xxx mavro
-        }
+        init_color_lut(vars->display_in_color, vars->color_lut);
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -227,25 +215,12 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         // get the cached mandelbrot set values; and
         // convert them to pixel color values
-        short * mbsval = malloc(win_height*win_width*2);  //xxx make this unsigned
+        unsigned short * mbsval = malloc(win_height*win_width*2);
         cache_get_mbsval(mbsval);
-        if (vars->display_in_color) {
-            for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
-                for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
-                    pixels[idx] = (mbsval[idx] == MBSVAL_NOT_COMPUTED 
-                                ? PIXEL_BLUE
-                                : vars->color_lut[mbsval[idx]]);
-                    idx++;
-                }
-            }
-        } else {  // black and white
-            for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
-                for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
-                    pixels[idx] = (mbsval[idx] == MBSVAL_NOT_COMPUTED ? PIXEL_BLUE  :
-                                   mbsval[idx] == MBSVAL_IN_SET       ? PIXEL_BLACK
-                                                                      : PIXEL_WHITE);
-                    idx++;
-                }
+        for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
+            for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
+                pixels[idx] = vars->color_lut[mbsval[idx]];
+                idx++;
             }
         }
         free(mbsval);
@@ -362,6 +337,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         // --- COLOR CONTROLS ---
         case 'c':
             vars->display_in_color = !vars->display_in_color;
+            init_color_lut(vars->display_in_color, vars->color_lut);
             break;
 
         // --- RESET CTR AND ZOOM TO DEFAULT ---
@@ -485,3 +461,24 @@ static double zoom_step(double z, bool dir_is_incr)
     return z;
 }
 
+static void init_color_lut(bool color, unsigned int *color_lut)
+{
+    int           i;
+    unsigned char r,g,b;
+    double        wavelen;
+
+    color_lut[65535]         = PIXEL_BLUE;
+    color_lut[MBSVAL_IN_SET] = PIXEL_BLACK;
+
+    if (color) {
+        for (i = 0; i < MBSVAL_IN_SET; i++) {
+            wavelen = 400. + i * ((700. - 400.) / (MBSVAL_IN_SET-1));
+            sdl_wavelen_to_rgb(wavelen, &r, &g, &b);
+            color_lut[i] = PIXEL(r,g,b);
+        }
+    } else {
+        for (i = 0; i < MBSVAL_IN_SET; i++) {
+            color_lut[i] = PIXEL_WHITE;
+        }
+    }
+}

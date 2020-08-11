@@ -1,8 +1,3 @@
-// xxx now using usleep(100) check /bin/top when idle
-// xxx see if it can work with window size smaller than cache size
-// xxx window must be in the cache
-// xxx should idx_a be called idx_x
-
 #include <common.h>
 
 //
@@ -33,14 +28,14 @@ typedef struct {
 } spiral_t;
 
 typedef struct {
-    short  (*mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
-    complex  ctr;
-    int      zoom;
-    double   pixel_size;
-    spiral_t phase1_spiral;
-    bool     phase1_spiral_done;
-    spiral_t phase2_spiral;
-    bool     phase2_spiral_done;
+    unsigned short  (*mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
+    complex           ctr;
+    int               zoom;
+    double            pixel_size;
+    spiral_t          phase1_spiral;
+    bool              phase1_spiral_done;
+    spiral_t          phase2_spiral;
+    bool              phase2_spiral_done;
 } cache_t;
 
 typedef struct {
@@ -149,7 +144,7 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
     cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
 }
 
-void cache_get_mbsval(short *mbsval)
+void cache_get_mbsval(unsigned short *mbsval)
 {
     int idx_b, idx_b_first, idx_b_last;
     cache_t *cp = &cache[cache_zoom];
@@ -253,11 +248,11 @@ done:
 
 bool cache_read(int file_id, complex *ctr, double *zoom)
 {
-    int         fd, len, z, rc;
-    char        file_name[100], errstr[200];
-    file_hdr_t  hdr;
-    short     (*mbsval)[CACHE_WIDTH][CACHE_HEIGHT] = NULL;
-    struct stat statbuf;
+    int              fd, len, z, rc;
+    char             file_name[100], errstr[200];
+    file_hdr_t       hdr;
+    unsigned short (*mbsval)[CACHE_WIDTH][CACHE_HEIGHT] = NULL;
+    struct stat      statbuf;
 
     #define EXPECTED_FILE_SIZE (sizeof(file_hdr_t) + MAX_ZOOM * (sizeof(cache_t) + MBSVAL_BYTES))
 
@@ -343,8 +338,8 @@ done:
 static void cache_adjust_mbsval_ctr(cache_t *cp)
 {
     int old_y, new_y, delta_x, delta_y;
-    short (*new_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
-    short (*old_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
+    unsigned short (*new_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
+    unsigned short (*old_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
 
     delta_x = nearbyint((creal(cp->ctr) - creal(cache_ctr)) / cp->pixel_size);
     delta_y = nearbyint((cimag(cp->ctr) - cimag(cache_ctr)) / cp->pixel_size);
@@ -414,7 +409,9 @@ static void *cache_thread(void *cx)
                     cache_ctr; \
                 (*(_cp)->mbsval)[_idx_b][_idx_a] = mandelbrot_set(c); \
                 total_mbs_tsc += tsc_timer() - start_mbs_tsc; \
-                mbs_call_count++; \
+                mbs_calc_count++; \
+            } else { \
+                mbs_not_calc_count++; \
             } \
         } while (0)
 
@@ -433,7 +430,8 @@ static void *cache_thread(void *cx)
     int            win_min_x, win_max_x, win_min_y, win_max_y;
     unsigned long  total_mbs_tsc, start_us, start_tsc=0;
     bool           was_stopped;
-    int            mbs_call_count;
+    int            mbs_calc_count;
+    int            mbs_not_calc_count;
 
     while (true) {
 restart:
@@ -446,12 +444,14 @@ restart:
         // - start_tsc
         // - start_us
         // - was_stopped
-        // - mbs_call_count
+        // - mbs_calc_count
+        // - mbs_not_calc_count
         // - total_mbs_tsc
         if (start_tsc != 0) {
-            DEBUG("%s  mbs_call_count=%d  duration=%ld ms  mbs_calc=%ld %%\n",
+            DEBUG("%s  mbs_calc_count=%d,%d  duration=%ld ms  mbs_calc=%ld %%\n",
                  !was_stopped ? "DONE" : "STOPPED",
-                 mbs_call_count,
+                 mbs_calc_count,
+                 mbs_not_calc_count,
                  (microsec_timer() - start_us) / 1000,
                  total_mbs_tsc * 100 / (tsc_timer() - start_tsc));
         }
@@ -476,11 +476,12 @@ restart:
 
         cache_thread_finished_for_cache_ctr = CTR_INVALID;
 
-        start_tsc      = tsc_timer();
-        start_us       = microsec_timer();
-        was_stopped    = false;
-        mbs_call_count = 0;
-        total_mbs_tsc  = 0;
+        start_tsc          = tsc_timer();
+        start_us           = microsec_timer();
+        was_stopped        = false;
+        mbs_calc_count     = 0;
+        mbs_not_calc_count = 0;
+        total_mbs_tsc      = 0;
 
         win_min_x = CACHE_WIDTH/2  - cache_win_width/2  - 3;
         win_max_x = CACHE_WIDTH/2  + cache_win_width/2  + 3;

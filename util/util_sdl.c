@@ -79,18 +79,17 @@ static struct pane_list_head_s * sdl_pane_list_head[10];
 static int              sdl_pane_list_head_idx;
 
 static uint32_t         sdl_color_to_rgba[MAX_SDL_COLOR_TO_RGBA] = {
-                            //    red           green          blue    alpha
-                               (127 << 0) | (  0 << 8) | (255 << 16) | (255 << 24),  // PURPLE
-                               (  0 << 0) | (  0 << 8) | (255 << 16) | (255 << 24),  // BLUE
-                               (  0 << 0) | (255 << 8) | (255 << 16) | (255 << 24),  // LIGHT_BLUE
-                               (  0 << 0) | (255 << 8) | (  0 << 16) | (255 << 24),  // GREEN
-                               (255 << 0) | (255 << 8) | (  0 << 16) | (255 << 24),  // YELLOW
-                               (255 << 0) | (128 << 8) | (  0 << 16) | (255 << 24),  // ORANGE
-                               (255 << 0) | (105 << 8) | (180 << 16) | (255 << 24),  // PINK 
-                               (255 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24),  // RED         
-                               (224 << 0) | (224 << 8) | (224 << 16) | (255 << 24),  // GRAY        
-                               (255 << 0) | (255 << 8) | (255 << 16) | (255 << 24),  // WHITE       
-                               (  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24),  // BLACK       
+                            PIXEL_PURPLE, 
+                            PIXEL_BLUE, 
+                            PIXEL_LIGHT_BLUE, 
+                            PIXEL_GREEN, 
+                            PIXEL_YELLOW, 
+                            PIXEL_ORANGE, 
+                            PIXEL_PINK, 
+                            PIXEL_RED, 
+                            PIXEL_GRAY, 
+                            PIXEL_WHITE, 
+                            PIXEL_BLACK, 
                                         };
 
 //

@@ -22,10 +22,22 @@
 #define WHITE      9
 #define BLACK      10
 
-// number of bytes per pixel
-#define BYTES_PER_PIXEL   4
+// pixels
+#define BYTES_PER_PIXEL  4
+#define PIXEL(r,g,b)     (((r) << 0) | ((g) << 8) | ((b) << 16) | (255 << 24))
+#define PIXEL_PURPLE     PIXEL(127,0,255)
+#define PIXEL_BLUE       PIXEL(0,0,255)
+#define PIXEL_LIGHT_BLUE PIXEL(0,255,255)
+#define PIXEL_GREEN      PIXEL(0,255,0)
+#define PIXEL_YELLOW     PIXEL(255,255,0)
+#define PIXEL_ORANGE     PIXEL(255,128,0)
+#define PIXEL_PINK       PIXEL(255,105,180)
+#define PIXEL_RED        PIXEL(255,0,0)
+#define PIXEL_GRAY       PIXEL(224,224,224)
+#define PIXEL_WHITE      PIXEL(255,255,255)
+#define PIXEL_BLACK      PIXEL(0,0,0)
 
-// xxx
+// convert font_ptsize to pixels
 #define COL2X(c,font_ptsize)   ((c) * sdl_font_char_width(font_ptsize))
 #define ROW2Y(r,font_ptsize)   ((r) * sdl_font_char_height(font_ptsize))
 
