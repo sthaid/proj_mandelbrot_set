@@ -20,6 +20,10 @@
 #define WAVELEN_START_DEFAULT   400
 #define WAVELEN_SCALE_DEFAULT   2
 
+#define DISPLAY_SELECT_MBS        1
+#define DISPLAY_SELECT_HELP       2
+#define DISPLAY_SELECT_COLOR_LUT  3
+
 //
 // typedefs
 //
@@ -114,7 +118,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         unsigned long last_update_time_us;
         bool          full_screen;
         bool          display_info;
-        bool          help_enabled;
+        int           display_select;
         bool          force;
         int           wavelen_start;
         int           wavelen_scale;
@@ -144,7 +148,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         vars->last_update_time_us = microsec_timer();
         vars->full_screen         = false;
         vars->display_info        = true;
-        vars->help_enabled        = false;
+        vars->display_select      = DISPLAY_SELECT_MBS;
         vars->force               = false;
         vars->wavelen_start       = WAVELEN_START_DEFAULT;
         vars->wavelen_scale       = WAVELEN_SCALE_DEFAULT;
@@ -158,23 +162,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // -------- RENDER --------
     // ------------------------
 
-    // xxx tbd
-    if (request == PANE_HANDLER_REQ_RENDER && vars->help_enabled) {
-        sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, "    HELP    ");
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
     if (request == PANE_HANDLER_REQ_RENDER) {
-        int            idx = 0, pixel_x, pixel_y;
-        unsigned int * pixels = vars->pixels;
-        unsigned long  time_now_us = microsec_timer();
-        unsigned long  update_intvl_ms;
-
-        // debug
-        update_intvl_ms = (time_now_us - vars->last_update_time_us) / 1000;
-        vars->last_update_time_us = time_now_us;
-        //DEBUG("*** INTVL=%ld ms ***\n", update_intvl_ms);
-
         // if window size has changed then update the pane's 
         // location within the window
         int new_win_width, new_win_height;
@@ -185,6 +173,42 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             win_width = new_win_width;
             win_height = new_win_height;
         }
+    }
+
+    if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_HELP) {
+        sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, "    HELP    ");
+
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_COLOR_LUT) {
+        int i, x, x_start;
+        unsigned char r,g,b;
+
+        // xxx allow for smaller windows
+        sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, "    COLOR LUT    ");
+
+        x_start = (pane->w - MBSVAL_IN_SET) / 2;
+        for (i = 0; i < MBSVAL_IN_SET; i++) {
+            PIXEL_TO_RGB(vars->color_lut[i],r,g,b);           
+            sdl_define_custom_color(20, r,g,b);
+            x = x_start + i;
+            sdl_render_line(pane, x, 100, x, 300, 20);
+        }
+
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_MBS) {
+        int            idx = 0, pixel_x, pixel_y;
+        unsigned int * pixels = vars->pixels;
+        unsigned long  time_now_us = microsec_timer();
+        unsigned long  update_intvl_ms;
+
+        // debug
+        update_intvl_ms = (time_now_us - vars->last_update_time_us) / 1000;
+        vars->last_update_time_us = time_now_us;
+        //DEBUG("*** INTVL=%ld ms ***\n", update_intvl_ms);
 
         // if the texture hasn't been allocated yet, or the size of the
         // texture doesn't match the size of the pane then
@@ -308,28 +332,60 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // -------- EVENT --------
     // -----------------------
 
-// XXX call help_enabled  display_select
-    if (request == PANE_HANDLER_REQ_EVENT && vars->help_enabled) {
+    if (request == PANE_HANDLER_REQ_EVENT && vars->display_select == DISPLAY_SELECT_HELP) {
         switch (event->event_id) {
-        case '?': case SDL_EVENT_KEY_ESC:
-            vars->help_enabled = false;
+        case SDL_EVENT_KEY_ESC:
+            vars->display_select = DISPLAY_SELECT_MBS;
             break;
         }
+
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
-    if (request == PANE_HANDLER_REQ_EVENT) {
+    if (request == PANE_HANDLER_REQ_EVENT && vars->display_select == DISPLAY_SELECT_COLOR_LUT) {
+        switch (event->event_id) {
+        case SDL_EVENT_KEY_ESC:
+            vars->display_select = DISPLAY_SELECT_MBS;
+            break;
+        case 'R':
+            vars->wavelen_start = WAVELEN_START_DEFAULT;
+            vars->wavelen_scale = WAVELEN_SCALE_DEFAULT;
+            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
+            break;
+        case SDL_EVENT_KEY_UP_ARROW: case SDL_EVENT_KEY_DOWN_ARROW:
+            vars->wavelen_scale = vars->wavelen_scale +
+                                  (event->event_id == SDL_EVENT_KEY_UP_ARROW ? 1 : -1);
+            if (vars->wavelen_scale < 0) vars->wavelen_scale = 0;
+            if (vars->wavelen_scale > 8) vars->wavelen_scale = 8;
+            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
+            break;
+        case SDL_EVENT_KEY_LEFT_ARROW: case SDL_EVENT_KEY_RIGHT_ARROW:
+            vars->wavelen_start = vars->wavelen_start +
+                                  (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW ? 1 : -1);
+            if (vars->wavelen_start < WAVELEN_FIRST) vars->wavelen_start = WAVELEN_LAST;
+            if (vars->wavelen_start > WAVELEN_LAST) vars->wavelen_start = WAVELEN_FIRST;
+            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
+            break;
+        }
+
+        return PANE_HANDLER_RET_NO_ACTION;
+    }
+
+    if (request == PANE_HANDLER_REQ_EVENT && vars->display_select == DISPLAY_SELECT_MBS) {
         switch (event->event_id) {
 
         // --- GENERAL ---
+        case '?':
+            vars->display_select = DISPLAY_SELECT_HELP;
+            break;
         case 'q':
             return PANE_HANDLER_RET_PANE_TERMINATE;
             break;
-        case '?':
-            vars->help_enabled = true;
-            break;
         case 'i':
             vars->display_info = !vars->display_info;
+            break;
+        case 'c':
+            vars->display_select = DISPLAY_SELECT_COLOR_LUT;
             break;
         case 'r':
             vars->lcl_ctr  = INITIAL_CTR;
@@ -350,14 +406,13 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             break;
 
         // --- FULL SCREEN ---
-        case 'f': case SDL_EVENT_KEY_ESC: {
-            vars->full_screen = (event->event_id == 'f' ? !vars->full_screen : false);
+        case 'f': {
+            vars->full_screen = !vars->full_screen;
             DEBUG("set full_screen to %d\n", vars->full_screen);
             sdl_full_screen(vars->full_screen);
             break; }
 
         // --- COLOR CONTROLS ---
-        // XXX add color map display choice, maybe this could be the 'c'
         case SDL_EVENT_KEY_UP_ARROW: case SDL_EVENT_KEY_DOWN_ARROW:
             vars->wavelen_scale = vars->wavelen_scale +
                                   (event->event_id == SDL_EVENT_KEY_UP_ARROW ? 1 : -1);

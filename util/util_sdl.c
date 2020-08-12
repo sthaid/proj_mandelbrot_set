@@ -2206,9 +2206,10 @@ static char *print_screen_filename(void)
 
 // -----------------  COLORS  ------------------------------------------- 
 
+// XXX 20  should have a define for the first
 void sdl_define_custom_color(int32_t color, uint8_t r, uint8_t g, uint8_t b)
 {
-    if (color < 0 || color >= MAX_SDL_COLOR_TO_RGBA) {
+    if (color < 20 || color >= MAX_SDL_COLOR_TO_RGBA) {
         FATAL("color %d out of range\n", color);
     }
 

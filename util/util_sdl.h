@@ -37,6 +37,13 @@
 #define PIXEL_WHITE      PIXEL(255,255,255)
 #define PIXEL_BLACK      PIXEL(0,0,0)
 
+#define PIXEL_TO_RGB(p,r,g,b) \
+    do { \
+        r = ((p) >>  0) & 0xff; \
+        g = ((p) >>  8) & 0xff; \
+        b = ((p) >> 16) & 0xff; \
+    } while (0)
+
 // convert font_ptsize to pixels
 #define COL2X(c,font_ptsize)   ((c) * sdl_font_char_width(font_ptsize))
 #define ROW2Y(r,font_ptsize)   ((r) * sdl_font_char_height(font_ptsize))
