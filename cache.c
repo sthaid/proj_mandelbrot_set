@@ -13,7 +13,7 @@
 
 #define MBSVAL_BYTES   (CACHE_HEIGHT*CACHE_WIDTH*2)
 
-#define MAGIC_MBS_FILE 0x11224567
+#define MAGIC_MBS_FILE 0x1122456755aa55aa
 
 //
 // typedefs
@@ -39,9 +39,16 @@ typedef struct {
 } cache_t;
 
 typedef struct {
-    int     magic;
-    complex ctr;
-    double  zoom;
+    union {
+        struct {
+            long    magic;
+            complex ctr;
+            double  zoom;
+            int     wavelen_start;
+            int     wavelen_scale;
+        };
+        char bytes[512];
+    };
 } file_hdr_t;
 
 //
@@ -120,8 +127,9 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
 
     // if either window dimension has increased then 
-    // all of the spirals need to be reset
-    if (win_width > cache_win_width || win_height > cache_win_height) {
+    // all of the spirals need to be reset; also
+    // reset the spirals when the force flag is set
+    if (win_width > cache_win_width || win_height > cache_win_height || force) {
         for (z = 0; z < MAX_ZOOM; z++) {
             cache_t *cp = &cache[z];
             cp->phase1_spiral      = cache_initial_spiral;
@@ -176,16 +184,14 @@ void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog)
     *zoom_lvl_inprog  = cache_status_zoom_lvl_inprog;
 }
 
-bool cache_write(int file_id, complex ctr, double zoom, bool require_cache_thread_finished)
+bool cache_write(char *file_name, complex ctr, double zoom, 
+                 int wavelen_start, int wavelen_scale,
+                 bool require_cache_thread_finished)
 {
-    int        fd, len, z;
-    char       file_name[100], errstr[200];
+    int        fd=-1, len, z;
+    char       errstr[200]="";
     file_hdr_t hdr;
     
-    sprintf(file_name, "mbs_%d.dat", file_id);
-    errstr[0] = '\0';
-    fd = -1;
-
     INFO("starting, file_name=%s\n", file_name);
 
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
@@ -208,9 +214,12 @@ bool cache_write(int file_id, complex ctr, double zoom, bool require_cache_threa
         goto done;
     }
 
-    hdr.magic = MAGIC_MBS_FILE;
-    hdr.ctr   = ctr;
-    hdr.zoom  = zoom;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic         = MAGIC_MBS_FILE;
+    hdr.ctr           = ctr;
+    hdr.zoom          = zoom;
+    hdr.wavelen_start = wavelen_start;
+    hdr.wavelen_scale = wavelen_scale;
     len = write(fd, &hdr, sizeof(hdr));
     if (len != sizeof(file_hdr_t)) {
         sprintf(errstr, "write-hdr %s, %s", file_name, strerror(errno));
@@ -246,19 +255,15 @@ done:
     return errstr[0] == '\0';
 }
 
-bool cache_read(int file_id, complex *ctr, double *zoom)
+bool cache_read(char *file_name, complex *ctr, double *zoom, int *wavelen_start, int *wavelen_scale)
 {
-    int              fd, len, z, rc;
-    char             file_name[100], errstr[200];
+    int              fd=1, len, z, rc;
+    char             errstr[200]="";
     file_hdr_t       hdr;
     unsigned short (*mbsval)[CACHE_WIDTH][CACHE_HEIGHT] = NULL;
     struct stat      statbuf;
 
     #define EXPECTED_FILE_SIZE (sizeof(file_hdr_t) + MAX_ZOOM * (sizeof(cache_t) + MBSVAL_BYTES))
-
-    sprintf(file_name, "mbs_%d.dat", file_id);
-    errstr[0] = '\0';
-    fd = -1;
 
     INFO("starting, file_name=%s\n", file_name);
 
@@ -287,7 +292,7 @@ bool cache_read(int file_id, complex *ctr, double *zoom)
     }
 
     if (hdr.magic != MAGIC_MBS_FILE) {
-        sprintf(errstr, "bad hdr.magic = 0x%x\n", hdr.magic);
+        sprintf(errstr, "bad hdr.magic = 0x%lx\n", hdr.magic);
         goto done;
     }
 
@@ -312,8 +317,11 @@ bool cache_read(int file_id, complex *ctr, double *zoom)
         mbsval = NULL;
     }
 
-    *ctr       = hdr.ctr;
-    *zoom      = hdr.zoom;
+    *ctr           = hdr.ctr;
+    *zoom          = hdr.zoom;
+    *wavelen_start = hdr.wavelen_start;
+    *wavelen_scale = hdr.wavelen_scale;
+
     cache_ctr  = hdr.ctr;
     cache_zoom = floor(hdr.zoom);
 
@@ -528,7 +536,7 @@ restart:
             }
         }
 
-        // XXX phase2: 
+        // xxx phase2: comment needed
         DEBUG("STARTING PHASE2\n");
         cache_status_phase = 2;
         for (n = 0; n < MAX_ZOOM; n++) {

@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <string.h>
 #include <math.h>
@@ -44,7 +45,8 @@ void cache_init(double pixel_size_at_zoom0);
 void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bool force);
 void cache_get_mbsval(unsigned short *mbsval);
 void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog);
-bool cache_write(int file_id, complex ctr, double zoom, bool require_cache_thread_finished);
-bool cache_read(int file_id, complex *ctr, double *zoom);
+bool cache_write(char *file_name, complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+                 bool require_cache_thread_finished);
+bool cache_read(char *file_name, complex *ctr, double *zoom, int *wavelen_start, int *wavelen_scale);
 
 #endif

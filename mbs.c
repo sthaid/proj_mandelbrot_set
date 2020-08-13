@@ -32,9 +32,9 @@
 // variables
 //
 
-static int    win_width   = DEFAULT_WIN_WIDTH;
-static int    win_height  = DEFAULT_WIN_HEIGHT;
-static double pixel_size_at_zoom0;
+static int     win_width   = DEFAULT_WIN_WIDTH;
+static int     win_height  = DEFAULT_WIN_HEIGHT;
+static double  pixel_size_at_zoom0;
 
 //
 // prototypes
@@ -43,6 +43,10 @@ static double pixel_size_at_zoom0;
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
 static double zoom_step(double z, bool dir_is_incr);
 static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *color_lut);
+static void set_alert(int color, char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
+static void display_alert(rect_t *pane);
+static void display_info(rect_t *pane, double lcl_zoom, int wavelen_start, int wavelen_scale,
+                         unsigned long update_intvl_ms);
 
 // -----------------  MAIN  -------------------------------------------------
 
@@ -178,6 +182,8 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_HELP) {
         sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, "    HELP    ");
 
+        // XXX help text needed
+
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -185,7 +191,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         int i, x, x_start;
         unsigned char r,g,b;
 
-        // xxx allow for smaller windows
+        // xxx allow for smaller windows, or print a message if too small
         sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, "    COLOR LUT    ");
 
         x_start = (pane->w - MBSVAL_IN_SET) / 2;
@@ -208,7 +214,6 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         // debug
         update_intvl_ms = (time_now_us - vars->last_update_time_us) / 1000;
         vars->last_update_time_us = time_now_us;
-        //DEBUG("*** INTVL=%ld ms ***\n", update_intvl_ms);
 
         // if the texture hasn't been allocated yet, or the size of the
         // texture doesn't match the size of the pane then
@@ -280,42 +285,24 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
         sdl_render_scaled_texture_ex(pane, &src, &dst, vars->texture);
 
-        // status  xxx clean up
-        // xxx pad with spaces to make even
+        // display info in upper left corner
         if (vars->display_info) {
-            int row = 0;
-            int phase, percent_complete, zoom_lvl_inprog;
-
-            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
-                              "Window: %d %d",
-                              win_width, win_height);
-            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
-                              "Zoom:   %0.2f",
-                              vars->lcl_zoom);   // xxx also autozoom status
-            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
-                              "Color:  %d %d",
-                              vars->wavelen_start, vars->wavelen_scale);   
-                              // xxx also save in the file, and add pads
-            cache_status(&phase, &percent_complete, &zoom_lvl_inprog);
-            if (phase == 0) {
-                sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
-                                  "Cache:  Idle");
-            } else {
-                sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
-                                  "Cache:  Phase%d %d%% Zoom=%d",
-                                  phase, percent_complete, zoom_lvl_inprog);
-            }
-            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
-                              "Intvl:  %ld ms",
-                              update_intvl_ms);
-            sdl_render_printf(pane, 0, ROW2Y(row++,20), 20,  WHITE, BLACK, 
-                              "Debug:  %s",
-                              debug_enabled ? "True" : "False");
+            display_info(pane, 
+                         vars->lcl_zoom, 
+                         vars->wavelen_start, 
+                         vars->wavelen_scale,
+                         update_intvl_ms);
         }
 
-        // xxx square ?
+        // display alert messages in the center of the pane
+        display_alert(pane);
+
+        // when debug_enabled display a squae in the center of the pane;
+        // the purpose is to be able to check that the screen's pixels are square
+        // (if the display settings aspect ratio doesn't match the physical screen
+        //  dimensions then the pixels will not be square)
         if (debug_enabled) {
-            rect_t loc = { pane->w/2-100, pane->h/2-100, 200, 200};
+            rect_t loc = {pane->w/2-100, pane->h/2-100, 200, 200};
             sdl_render_rect(pane, &loc, 1, WHITE);
         }
 
@@ -488,26 +475,48 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             break;
 
         // --- READ AND WRITE FILES ---
-        // XXX put up an alert if okay or failed
         case '0'...'9': {
             complex new_ctr;
             double  new_zoom;
+            int     new_wavelen_start;
+            int     new_wavelen_scale;
             bool    succ;
             int     file_id = (event->event_id - '0');
-            succ = cache_read(file_id, &new_ctr, &new_zoom);
-            if (!succ) {
+            char    file_name[100];
+            sprintf(file_name, "mbs_%d.dat", file_id);
+            succ = cache_read(file_name, &new_ctr, &new_zoom, 
+                              &new_wavelen_start, &new_wavelen_scale);
+            if (succ) {
+                set_alert(GREEN, "Read %s Okay", file_name);
+            } else {
+                set_alert(RED, "Read %s Failed", file_name);
                 break;
             }
             vars->lcl_ctr = new_ctr;
             vars->lcl_zoom = new_zoom;
+            vars->wavelen_start = new_wavelen_start;
+            vars->wavelen_scale = new_wavelen_scale;
+            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
             break; }
-        case SDL_EVENT_KEY_CTRL+'0'...SDL_EVENT_KEY_CTRL+'9': {
-            int file_id = (event->event_id - ('0'+SDL_EVENT_KEY_CTRL));
-            cache_write(file_id, vars->lcl_ctr, vars->lcl_zoom, true);
-            break; }
+        case SDL_EVENT_KEY_CTRL+'0'...SDL_EVENT_KEY_CTRL+'9': 
         case SDL_EVENT_KEY_ALT+'0'...SDL_EVENT_KEY_ALT+'9': {
-            int file_id = (event->event_id - ('0'+SDL_EVENT_KEY_ALT));
-            cache_write(file_id, vars->lcl_ctr, vars->lcl_zoom, false);
+            bool require_cache_thread_finished = 
+                           event->event_id >= SDL_EVENT_KEY_CTRL+'0' &&
+                           event->event_id <= SDL_EVENT_KEY_CTRL+'9';
+            int file_id = (require_cache_thread_finished
+                           ? (event->event_id - (SDL_EVENT_KEY_CTRL+'0'))
+                           : (event->event_id - (SDL_EVENT_KEY_ALT+'0')));
+            char file_name[100];
+            bool succ;
+            sprintf(file_name, "mbs_%d.dat", file_id);
+            succ = cache_write(file_name, vars->lcl_ctr, vars->lcl_zoom, 
+                               vars->wavelen_start, vars->wavelen_scale,
+                               require_cache_thread_finished);
+            if (succ) {
+                set_alert(GREEN, "Write %s Okay", file_name);
+            } else {
+                set_alert(RED, "Write %s Failed", file_name);
+            }
             break; }
         }
 
@@ -574,5 +583,79 @@ static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *c
                 wavelen = WAVELEN_FIRST;
             }
         }
+    }
+}
+
+struct {
+    char          str[200];
+    int           color;
+    unsigned long expire_us;
+} alert;
+
+static void set_alert(int color, char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(alert.str, sizeof(alert.str), fmt, ap);
+    va_end(ap);
+
+    alert.color = color;
+    alert.expire_us = microsec_timer() + 2000000;
+}
+
+static void display_alert(rect_t *pane)
+{
+    static int alert_font_ptsize = 30;
+    int x, y;
+
+    if (microsec_timer() > alert.expire_us) {
+        return;
+    }
+
+    x = pane->w / 2 - COL2X(strlen(alert.str), alert_font_ptsize) / 2;
+    y = pane->h / 2 - ROW2Y(1,alert_font_ptsize) / 2;
+    sdl_render_printf(pane, x, y, alert_font_ptsize, alert.color, BLACK, "%s", alert.str);
+}
+
+static void display_info(rect_t *pane,
+                         double lcl_zoom,
+                         int wavelen_start,
+                         int wavelen_scale,
+                         unsigned long update_intvl_ms)
+{
+    char line[20][50];
+    int  line_len[20];
+    int  n=0, max_len=0, i;
+    int  phase, percent_complete, zoom_lvl_inprog;
+
+    // print info to line[] array
+    sprintf(line[n++], "Window: %d %d", win_width, win_height);
+    sprintf(line[n++], "Zoom:   %0.2f", lcl_zoom);
+    sprintf(line[n++], "Color:  %d %d", wavelen_start, wavelen_scale);   
+    cache_status(&phase, &percent_complete, &zoom_lvl_inprog);
+    if (phase == 0) {
+        sprintf(line[n++], "Cache:  Idle");
+    } else {
+        sprintf(line[n++], "Cache:  Phase%d %d%% Zoom=%d", phase, percent_complete, zoom_lvl_inprog);
+    }
+    sprintf(line[n++], "Intvl:  %ld ms", update_intvl_ms);
+    sprintf(line[n++], "Debug:  %s", debug_enabled ? "True" : "False");
+
+    // determine each line_len and the max_len
+    for (i = 0; i < n; i++) {
+        line_len[i] = strlen(line[i]);
+        if (line_len[i] > max_len) max_len = line_len[i];
+    }
+
+    // extend each line with spaces, out to max_len,
+    // so that each line is max_len long
+    for (i = 0; i < n; i++) {
+        sprintf(line[i]+line_len[i], "%*s", max_len-line_len[i], "");
+    }
+
+    // render the lines
+    for (i = 0; i < n; i++) {
+        sdl_render_printf(pane, 0, ROW2Y(i,20), 20,  WHITE, BLACK, "%s", line[i]);
     }
 }
