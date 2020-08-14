@@ -1,3 +1,5 @@
+// xxx comments throughout
+
 #include <common.h>
 
 //
@@ -8,12 +10,13 @@
 #define CACHE_THREAD_REQUEST_RUN    1
 #define CACHE_THREAD_REQUEST_STOP   2
 
-#define CACHE_WIDTH  2000
-#define CACHE_HEIGHT 2000
+#define CACHE_WIDTH                 2000
+#define CACHE_HEIGHT                2000
+#define MBSVAL_BYTES                (CACHE_HEIGHT*CACHE_WIDTH*2)
 
-#define MBSVAL_BYTES   (CACHE_HEIGHT*CACHE_WIDTH*2)
+#define MAGIC_MBS_FILE              0x1122456755aa55aa
 
-#define MAGIC_MBS_FILE 0x1122456755aa55aa
+#define CTR_INVALID                 (999 + 0 * I)
 
 //
 // typedefs
@@ -63,7 +66,7 @@ static cache_t  cache[MAX_ZOOM];
 
 static spiral_t cache_initial_spiral;
 static int      cache_thread_request;
-static complex  cache_thread_finished_for_cache_ctr;
+static complex  cache_thread_finished;
 
 static int      cache_status_phase;
 static int      cache_status_percent_complete;
@@ -75,15 +78,13 @@ static int      cache_status_zoom_lvl_inprog;
 
 static void cache_adjust_mbsval_ctr(cache_t *cp);
 static void *cache_thread(void *cx);
+static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl);
 static void cache_thread_issue_request(int req);
 static void cache_spiral_init(spiral_t *s, int x, int y);
 static void cache_spiral_get_next(spiral_t *s, int *x, int *y);
 
-#define CTR_INVALID  (999 + 0 * I)
-
 // -----------------  API  ------------------------------------------------------------
 
-// xxx comments
 void cache_init(double pixel_size_at_zoom0)
 {
     pthread_t id;
@@ -197,7 +198,7 @@ bool cache_write(char *file_name, complex ctr, double zoom,
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
 
     if (require_cache_thread_finished) {
-        if (ctr != cache_thread_finished_for_cache_ctr) {
+        if (ctr != cache_thread_finished) {
             sprintf(errstr, "cache thread is not finished");
             goto done;
         }
@@ -341,7 +342,7 @@ done:
     return errstr[0] == '\0';
 }
 
-// -----------------  PRIVATE - ADJUST xxxxx NAME ?  -----------------------------------
+// -----------------  PRIVATE - ADJUST MBSVAL CENTER  ---------------------------------
 
 static void cache_adjust_mbsval_ctr(cache_t *cp)
 {
@@ -440,6 +441,7 @@ static void *cache_thread(void *cx)
     bool           was_stopped;
     int            mbs_calc_count;
     int            mbs_not_calc_count;
+    int            zoom_lvl_tbl[MAX_ZOOM];
 
     while (true) {
 restart:
@@ -480,9 +482,8 @@ restart:
         cache_thread_request = CACHE_THREAD_REQUEST_NONE;
         __sync_synchronize();
 
-        // xxx comment
-
-        cache_thread_finished_for_cache_ctr = CTR_INVALID;
+        // xxx comments for all of the following
+        cache_thread_finished = CTR_INVALID;
 
         start_tsc          = tsc_timer();
         start_us           = microsec_timer();
@@ -496,66 +497,7 @@ restart:
         win_min_y = CACHE_HEIGHT/2 - cache_win_height/2 - 3;
         win_max_y = CACHE_HEIGHT/2 + cache_win_height/2 + 3;
 
-
-// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-#if 0
-if at lowest zoom then 
-  dir = DIR_UP
-else if at hightest zoom then
-  dir = DIR_DOWN
-else if zoom has changed then
-  set dir based on comparison with last_zoom
-else
-  dont change dir  (dir must be static)
-endif
-
-create zoom_lvl_tbl based on current zoom and dir
-if dir == DIR_UP
-  add entries starting at zoom to the highest zoom
-  add entries starting at zoom-1 down to the lowest zoom
-else
-  add entries starting at zoom down to the lowest zoom
-  add entries starting at zoom+1 to the highest zoom
-endif
-#endif
-// XXX make this a routine
-        int idx;
-        int zoom_lvl_tbl[MAX_ZOOM];
-
-        static bool dir_is_up;
-        static int last_cache_zoom = 0;
-
-        if (cache_zoom == 0) {
-            dir_is_up = true;
-        } else if (cache_zoom == LAST_ZOOM) {
-            dir_is_up = false;
-        } else if (cache_zoom > last_cache_zoom) {
-            dir_is_up = true;
-        } else if (cache_zoom < last_cache_zoom) {
-            dir_is_up = false;
-        } else {
-            // no change to dir
-        }
-
-        n = 0;
-        if (dir_is_up) {
-            for (idx = cache_zoom; idx <= LAST_ZOOM; idx++) zoom_lvl_tbl[n++] = idx;
-            for (idx = cache_zoom-1; idx >= 0; idx--) zoom_lvl_tbl[n++] = idx;
-        } else {
-            for (idx = cache_zoom; idx >= 0; idx--) zoom_lvl_tbl[n++] = idx;
-            for (idx = cache_zoom+1; idx <= LAST_ZOOM; idx++) zoom_lvl_tbl[n++] = idx;
-        }
-        if (n != MAX_ZOOM) FATAL("n = %d\n",n);
-        char str[200], *p=str;
-        for (n = 0; n < MAX_ZOOM; n++) {
-            p += sprintf(p, "%d ", zoom_lvl_tbl[n]);
-        }
-        INFO("dir=%s zoom=%d last=%d - %s\n", 
-             (dir_is_up ? "UP" : "DOWN"),
-             cache_zoom, last_cache_zoom, str);
-
-        last_cache_zoom = cache_zoom;
-// ^^^^^^^^^^^^^^^^^^^^^^^^^
+        cache_thread_get_zoom_lvl_tbl(zoom_lvl_tbl);
 
         // phase1: loop over all zoom levels
         DEBUG("STARTING PHASE1\n");
@@ -596,13 +538,13 @@ endif
             }
         }
 
-        // xxx phase2: comment needed
+        // phase2: loop over all zoom levels  xxx describe phase1 vs 2
         DEBUG("STARTING PHASE2\n");
         cache_status_phase = 2;
         for (n = 0; n < MAX_ZOOM; n++) {
             CHECK_FOR_STOP_REQUEST;
 
-            cache_status_percent_complete = 100 * n / MAX_ZOOM;
+            cache_status_percent_complete = 100 * n / MAX_ZOOM;  // xxx maybe get rid of percent_comp
             cache_status_zoom_lvl_inprog  = zoom_lvl_tbl[n];
             __sync_synchronize();
 
@@ -631,8 +573,48 @@ endif
         }
 
         // xxx
-        cache_thread_finished_for_cache_ctr = cache_ctr;
+        cache_thread_finished = cache_ctr;
     }
+}
+
+static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
+{
+    int         n, idx;
+
+    static bool dir_is_up      = true;
+    static int  last_cache_zoom = 0;
+
+    if (cache_zoom == 0) {
+        dir_is_up = true;
+    } else if (cache_zoom == LAST_ZOOM) {
+        dir_is_up = false;
+    } else if (cache_zoom > last_cache_zoom) {
+        dir_is_up = true;
+    } else if (cache_zoom < last_cache_zoom) {
+        dir_is_up = false;
+    } else {
+        // no change to dir
+    }
+
+    n = 0;
+    if (dir_is_up) {
+        for (idx = cache_zoom; idx <= LAST_ZOOM; idx++) zoom_lvl_tbl[n++] = idx;
+        for (idx = cache_zoom-1; idx >= 0; idx--) zoom_lvl_tbl[n++] = idx;
+    } else {
+        for (idx = cache_zoom; idx >= 0; idx--) zoom_lvl_tbl[n++] = idx;
+        for (idx = cache_zoom+1; idx <= LAST_ZOOM; idx++) zoom_lvl_tbl[n++] = idx;
+    }
+    if (n != MAX_ZOOM) FATAL("n = %d\n",n);
+
+    char str[200], *p=str;
+    for (n = 0; n < MAX_ZOOM; n++) {
+        p += sprintf(p, "%d ", zoom_lvl_tbl[n]);
+    }
+    INFO("dir=%s zoom=%d last=%d - %s\n", 
+         (dir_is_up ? "UP" : "DOWN"),
+         cache_zoom, last_cache_zoom, str);
+
+    last_cache_zoom = cache_zoom;
 }
 
 static void cache_thread_issue_request(int req)
@@ -657,7 +639,6 @@ static void cache_spiral_init(spiral_t *s, int x, int y)
     s->y = y;
 }
 
-// xxx check the direction
 static void cache_spiral_get_next(spiral_t *s, int *x, int *y)
 {
     #define DIR_RIGHT  0
