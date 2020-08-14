@@ -1,0 +1,31 @@
+--- GENERAL ---
+?   help, <esc> to exit
+q   quit
+i   display info toggle
+c   display color map, <esc> to exit
+r   reset pan and zoom
+R   reset color map
+f   full screen toggle
+F1  enable debug prints
+F2  force cache thread to start
+
+--- PAN ---
+mouse-left-click-and-drag  pan
+mouse-right-click          center on mouse position
+
+--- ZOOM ---
++ or =       zoom in
+-            zoom out
+mouse-wheel  zoom in or out
+z            zoom all the way in or out
+a            auto zoom toggle
+A            auto zoom direction toggle
+
+--- COLOR CONTROLS ---
+up-arrow and down-arrow     adjust color map scale
+left-arrow and right-arrow  adjust color map start wavelength
+
+--- READ AND WRITE FILES ---
+0 - 9          read file mbs_N.dat
+ctrl0 - ctrl9  write file mbs_N.dat, caching must be complete
+alt0 - alt9    write file mbs_N.dat, caching need not be complete

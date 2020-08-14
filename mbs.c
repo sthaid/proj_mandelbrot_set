@@ -6,19 +6,18 @@
 // defines
 //
 
-#define DEFAULT_WIN_WIDTH   1200
-#define DEFAULT_WIN_HEIGHT  800
+#define DEFAULT_WIN_WIDTH         1200
+#define DEFAULT_WIN_HEIGHT        800
 
-//#define INITIAL_CTR    (-0.75 + 0.0*I)
-#define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
+#define INITIAL_CTR               (-0.75 + 0.0*I)
 
-#define ZOOM_STEP  .1   // must be a submultiple of 1
-#define LAST_ZOOM  (MAX_ZOOM-1)
+#define ZOOM_STEP                 .1   // must be a submultiple of 1
+#define LAST_ZOOM                 (MAX_ZOOM-1)
 
-#define WAVELEN_FIRST           400
-#define WAVELEN_LAST            700
-#define WAVELEN_START_DEFAULT   400
-#define WAVELEN_SCALE_DEFAULT   2
+#define WAVELEN_FIRST             400
+#define WAVELEN_LAST              700
+#define WAVELEN_START_DEFAULT     400
+#define WAVELEN_SCALE_DEFAULT     2
 
 #define DISPLAY_SELECT_MBS        1
 #define DISPLAY_SELECT_HELP       2
@@ -180,27 +179,40 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     }
 
     if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_HELP) {
-        sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, "    HELP    ");
+        FILE *fp;
+        char s[200];
+        int row, len;
 
-        // XXX help text needed
+        if ((fp = fopen("mbs_help.txt", "r")) != NULL) {
+            for (row = 0; fgets(s,sizeof(s),fp); row++) {
+                len = strlen(s);
+                if (len > 0 && s[len-1] == '\n') s[len-1] = '\0';
+                sdl_render_printf(pane, 0, ROW2Y(row,20), 20, WHITE, BLACK, "%s", s);
+            }
+            fclose(fp);
+        }
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
     if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_COLOR_LUT) {
-        int i, x, x_start;
+        int i, x, y, x_start;
         unsigned char r,g,b;
-
-        // xxx allow for smaller windows, or print a message if too small
-        sdl_render_printf(pane, 0, ROW2Y(0,20), 20,  WHITE, BLACK, "    COLOR LUT    ");
+        char title[100];
 
         x_start = (pane->w - MBSVAL_IN_SET) / 2;
         for (i = 0; i < MBSVAL_IN_SET; i++) {
             PIXEL_TO_RGB(vars->color_lut[i],r,g,b);           
-            sdl_define_custom_color(20, r,g,b);
             x = x_start + i;
-            sdl_render_line(pane, x, 100, x, 300, 20);
+            y = pane->h/2 - 400/2;
+            sdl_define_custom_color(20, r,g,b);
+            sdl_render_line(pane, x, y, x, y+400, 20);  // xxx y should be centered
         }
+
+        sprintf(title,"COLOR MAP - START=%d nm  SCALE=%d",
+                vars->wavelen_start, vars->wavelen_scale);
+        x   = pane->w/2 - COL2X(strlen(title),30)/2;
+        sdl_render_printf(pane, x, 0, 30,  WHITE, BLACK, "%s", title);
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
