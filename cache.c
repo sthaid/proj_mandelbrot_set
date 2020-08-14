@@ -434,7 +434,7 @@ static void *cache_thread(void *cx)
         (CACHE_WIDTH >= CACHE_HEIGHT ? idx_a < 0 : idx_b < 0)
 
     cache_t      * cp;
-    int            n, idx_a, idx_b, dir;
+    int            n, idx_a, idx_b;
     int            win_min_x, win_max_x, win_min_y, win_max_y;
     unsigned long  total_mbs_tsc, start_us, start_tsc=0;
     bool           was_stopped;
@@ -495,7 +495,67 @@ restart:
         win_max_x = CACHE_WIDTH/2  + cache_win_width/2  + 3;
         win_min_y = CACHE_HEIGHT/2 - cache_win_height/2 - 3;
         win_max_y = CACHE_HEIGHT/2 + cache_win_height/2 + 3;
-        dir = 1; // XXX
+
+
+// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+#if 0
+if at lowest zoom then 
+  dir = DIR_UP
+else if at hightest zoom then
+  dir = DIR_DOWN
+else if zoom has changed then
+  set dir based on comparison with last_zoom
+else
+  dont change dir  (dir must be static)
+endif
+
+create zoom_lvl_tbl based on current zoom and dir
+if dir == DIR_UP
+  add entries starting at zoom to the highest zoom
+  add entries starting at zoom-1 down to the lowest zoom
+else
+  add entries starting at zoom down to the lowest zoom
+  add entries starting at zoom+1 to the highest zoom
+endif
+#endif
+// XXX make this a routine
+        int idx;
+        int zoom_lvl_tbl[MAX_ZOOM];
+
+        static bool dir_is_up;
+        static int last_cache_zoom = 0;
+
+        if (cache_zoom == 0) {
+            dir_is_up = true;
+        } else if (cache_zoom == LAST_ZOOM) {
+            dir_is_up = false;
+        } else if (cache_zoom > last_cache_zoom) {
+            dir_is_up = true;
+        } else if (cache_zoom < last_cache_zoom) {
+            dir_is_up = false;
+        } else {
+            // no change to dir
+        }
+
+        n = 0;
+        if (dir_is_up) {
+            for (idx = cache_zoom; idx <= LAST_ZOOM; idx++) zoom_lvl_tbl[n++] = idx;
+            for (idx = cache_zoom-1; idx >= 0; idx--) zoom_lvl_tbl[n++] = idx;
+        } else {
+            for (idx = cache_zoom; idx >= 0; idx--) zoom_lvl_tbl[n++] = idx;
+            for (idx = cache_zoom+1; idx <= LAST_ZOOM; idx++) zoom_lvl_tbl[n++] = idx;
+        }
+        if (n != MAX_ZOOM) FATAL("n = %d\n",n);
+        char str[200], *p=str;
+        for (n = 0; n < MAX_ZOOM; n++) {
+            p += sprintf(p, "%d ", zoom_lvl_tbl[n]);
+        }
+        INFO("dir=%s zoom=%d last=%d - %s\n", 
+             (dir_is_up ? "UP" : "DOWN"),
+             cache_zoom, last_cache_zoom, str);
+
+        last_cache_zoom = cache_zoom;
+// ^^^^^^^^^^^^^^^^^^^^^^^^^
 
         // phase1: loop over all zoom levels
         DEBUG("STARTING PHASE1\n");
@@ -504,7 +564,7 @@ restart:
             CHECK_FOR_STOP_REQUEST;
 
             cache_status_percent_complete = 100 * n / MAX_ZOOM;
-            cache_status_zoom_lvl_inprog  = (cache_zoom + dir*n + MAX_ZOOM) % MAX_ZOOM;
+            cache_status_zoom_lvl_inprog  = zoom_lvl_tbl[n];
             __sync_synchronize();
 
             cp = &cache[cache_status_zoom_lvl_inprog];
@@ -543,7 +603,7 @@ restart:
             CHECK_FOR_STOP_REQUEST;
 
             cache_status_percent_complete = 100 * n / MAX_ZOOM;
-            cache_status_zoom_lvl_inprog  = (cache_zoom + dir*n + MAX_ZOOM) % MAX_ZOOM;
+            cache_status_zoom_lvl_inprog  = zoom_lvl_tbl[n];
             __sync_synchronize();
 
             cp = &cache[cache_status_zoom_lvl_inprog];

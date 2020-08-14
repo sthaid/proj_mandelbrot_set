@@ -12,7 +12,6 @@
 #define INITIAL_CTR               (-0.75 + 0.0*I)
 
 #define ZOOM_STEP                 .1   // must be a submultiple of 1
-#define LAST_ZOOM                 (MAX_ZOOM-1)
 
 #define WAVELEN_FIRST             400
 #define WAVELEN_LAST              700
@@ -249,7 +248,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             if (vars->lcl_zoom == 0) {
                 vars->auto_zoom = 0;
             }
-            if (vars->lcl_zoom == LAST_ZOOM) {
+            if (vars->lcl_zoom == LAST_ZOOM) { //xxx is this exact, probably because of zoom_step
                 vars->auto_zoom = 0;
             }
         }
@@ -333,8 +332,11 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
     if (request == PANE_HANDLER_REQ_EVENT && vars->display_select == DISPLAY_SELECT_HELP) {
         switch (event->event_id) {
-        case SDL_EVENT_KEY_ESC:
+        case SDL_EVENT_KEY_ESC: case 'h':
             vars->display_select = DISPLAY_SELECT_MBS;
+            break;
+        case 'q':
+            return PANE_HANDLER_RET_PANE_TERMINATE;
             break;
         }
 
@@ -343,7 +345,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
     if (request == PANE_HANDLER_REQ_EVENT && vars->display_select == DISPLAY_SELECT_COLOR_LUT) {
         switch (event->event_id) {
-        case SDL_EVENT_KEY_ESC:
+        case SDL_EVENT_KEY_ESC: case 'c':
             vars->display_select = DISPLAY_SELECT_MBS;
             break;
         case 'R':
@@ -365,6 +367,9 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             if (vars->wavelen_start > WAVELEN_LAST) vars->wavelen_start = WAVELEN_FIRST;
             init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
             break;
+        case 'q':
+            return PANE_HANDLER_RET_PANE_TERMINATE;
+            break;
         }
 
         return PANE_HANDLER_RET_NO_ACTION;
@@ -374,7 +379,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         switch (event->event_id) {
 
         // --- GENERAL ---
-        case '?':
+        case 'h':
             vars->display_select = DISPLAY_SELECT_HELP;
             break;
         case 'q':

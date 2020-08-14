@@ -1,8 +1,8 @@
 --- GENERAL ---
-?   help, <esc> to exit
+h   help, h or <esc> to exit
 q   quit
 i   display info toggle
-c   display color map, <esc> to exit
+c   display color map, c or <esc> to exit
 r   reset pan and zoom
 R   reset color map
 f   full screen toggle
@@ -21,7 +21,7 @@ z            zoom all the way in or out
 a            auto zoom toggle
 A            auto zoom direction toggle
 
---- COLOR CONTROLS ---
+--- COLOR MAP CONTROLS ---
 up-arrow and down-arrow     adjust color map scale
 left-arrow and right-arrow  adjust color map start wavelength
 

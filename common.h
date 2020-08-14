@@ -25,6 +25,7 @@
 //
 
 #define MAX_ZOOM             47
+#define LAST_ZOOM            (MAX_ZOOM-1)
 
 #define MBSVAL_IN_SET        1000
 #define MBSVAL_NOT_COMPUTED  65535
