@@ -185,6 +185,32 @@ void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog)
     *zoom_lvl_inprog  = cache_status_zoom_lvl_inprog;
 }
 
+// -----------------  API : FILE  -----------------------------------------------------
+
+int cache_file_enumerate(void)
+{
+    return 2;
+}
+
+void cache_file_read_directory_info(int idx, cache_file_info_t *fi)
+{
+    memset(fi, 0, sizeof(cache_file_info_t));
+
+    if (idx >= 2) {
+        fi->error = true;
+        return;
+    }
+
+    fi->deleted = true;
+}
+
+bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+                     unsigned int * pixels)
+{
+    return true;
+}
+
+#if 0
 bool cache_write(char *file_name, complex ctr, double zoom, 
                  int wavelen_start, int wavelen_scale,
                  bool require_cache_thread_finished)
@@ -341,6 +367,8 @@ done:
     cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
     return errstr[0] == '\0';
 }
+
+#endif
 
 // -----------------  PRIVATE - ADJUST MBSVAL CENTER  ---------------------------------
 

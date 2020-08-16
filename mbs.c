@@ -22,6 +22,7 @@
 #define DISPLAY_SELECT_MBS        1
 #define DISPLAY_SELECT_HELP       2
 #define DISPLAY_SELECT_COLOR_LUT  3
+#define DISPLAY_SELECT_DIRECTORY  4
 
 //
 // typedefs
@@ -51,10 +52,12 @@ static void display_info_proc(rect_t *pane, double lcl_zoom, int wavelen_start, 
 static void render_hndlr_mbs(pane_cx_t *pane_cx);
 static void render_hndlr_help(pane_cx_t *pane_cx);
 static void render_hndlr_color_lut(pane_cx_t *pane_cx);
+static void render_hndlr_directory(pane_cx_t *pane_cx);
 
 static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event);
 static int event_hndlr_help(pane_cx_t *pane_cx, sdl_event_t *event);
 static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event);
+static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event);
 
 // -----------------  MAIN  -------------------------------------------------
 
@@ -118,6 +121,7 @@ int main(int argc, char **argv)
 
 // -----------------  PANE_HNDLR  ---------------------------------------
 
+// xxx some of these should be local
 static texture_t     texture;
 static unsigned int *pixels;
 static complex       lcl_ctr;  // xxx rename
@@ -183,11 +187,14 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         case DISPLAY_SELECT_MBS:
             render_hndlr_mbs(pane_cx);
             break;
+        case DISPLAY_SELECT_HELP:
+            render_hndlr_help(pane_cx);
+            break;
         case DISPLAY_SELECT_COLOR_LUT:
             render_hndlr_color_lut(pane_cx);
             break;
-        case DISPLAY_SELECT_HELP:
-            render_hndlr_help(pane_cx);
+        case DISPLAY_SELECT_DIRECTORY:
+            render_hndlr_directory(pane_cx);
             break;
         }
 
@@ -205,11 +212,14 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         case DISPLAY_SELECT_MBS:
             rc = event_hndlr_mbs(pane_cx, event);
             break;
+        case DISPLAY_SELECT_HELP:
+            rc = event_hndlr_help(pane_cx, event);
+            break;
         case DISPLAY_SELECT_COLOR_LUT:
             rc = event_hndlr_color_lut(pane_cx, event);
             break;
-        case DISPLAY_SELECT_HELP:
-            rc = event_hndlr_help(pane_cx, event);
+        case DISPLAY_SELECT_DIRECTORY:
+            rc = event_hndlr_directory(pane_cx, event);
             break;
         }
 
@@ -221,7 +231,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ---------------------------
 
     if (request == PANE_HANDLER_REQ_TERMINATE) {
-        sdl_destroy_texture(texture);
+        sdl_destroy_texture(texture);  // xxx maybe just rely on pgm exit
         free(pixels);
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -258,10 +268,9 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     {
         DEBUG("ALLOCATING TEXTURE AND PIXELS w=%d h=%d\n", pane->w, pane->h);
         sdl_destroy_texture(texture);
-        free(pixels);
+        free(pixels);  // xxx just malloc pixels when needed
         texture = sdl_create_texture(pane->w, pane->h);
         pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
-        pixels = pixels;
     }
 
     // xxx
@@ -356,14 +365,11 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
     case 'h':
         display_select = DISPLAY_SELECT_HELP;
         break;
-    case 'q':
-        rc = PANE_HANDLER_RET_PANE_TERMINATE;
-        break;
-    case 'i':
-        display_info = !display_info;
-        break;
     case 'c':
         display_select = DISPLAY_SELECT_COLOR_LUT;
+        break;
+    case 'd':
+        display_select = DISPLAY_SELECT_DIRECTORY;
         break;
     case 'r':
         lcl_ctr  = INITIAL_CTR;
@@ -374,6 +380,21 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
         wavelen_scale = WAVELEN_SCALE_DEFAULT;
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
         break;
+    case 'i':
+        display_info = !display_info;
+        break;
+    case 's': {//XXX
+        static unsigned int pixels[300*200];
+        int i;
+        bool succ;
+        for (i = 0; i < 60000; i++) pixels[i] = PIXEL_YELLOW;
+        succ = cache_file_save(lcl_ctr, lcl_zoom, wavelen_start, wavelen_scale, pixels);
+        set_alert(succ ? GREEN : RED, succ ? "SAVE OKAY" : "SAVE FAILED");
+        break; }
+    case 'q':
+        rc = PANE_HANDLER_RET_PANE_TERMINATE;
+        break;
+// XXX 's'
 
     // --- DEBUG ---
     case SDL_EVENT_KEY_F(1):
@@ -465,6 +486,7 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
         }
         break;
 
+#if 0
     // --- READ AND WRITE FILES ---
     case '0'...'9': {
         complex new_ctr;
@@ -509,6 +531,7 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
             set_alert(RED, "Write %s Failed", file_name);
         }
         break; }
+#endif
     }
 
     return rc;
@@ -721,6 +744,100 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
         if (wavelen_start < WAVELEN_FIRST) wavelen_start = WAVELEN_LAST;
         if (wavelen_start > WAVELEN_LAST) wavelen_start = WAVELEN_FIRST;
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        break;
+    case 'q':
+        rc = PANE_HANDLER_RET_PANE_TERMINATE;
+        break;
+    }
+
+    return rc;
+}
+
+// - - - - - - - - -  PANE_HNDLR : DIRECTORY  - - - - - - - - - - - - -
+
+static bool enum_needed = true;
+static bool selected[1000];
+static int  start=0;
+
+static void render_hndlr_directory(pane_cx_t *pane_cx)
+{
+    static texture_t texture;
+    static int       max_file;
+
+    int i, j, x, y;
+    cache_file_info_t fi;
+    rect_t *pane = &pane_cx->pane;
+
+    //INFO("starting\n");
+
+    // allocate texture
+    if (texture == NULL) {
+        texture = sdl_create_texture(300, 200);
+    }
+
+    // enumerate files if needed
+    if (enum_needed) {
+        max_file = cache_file_enumerate();
+        enum_needed = false;
+        //INFO("max_file = %d\n", max_file);
+    }
+
+    // display the directory
+    // - image
+    // - selected  'X' at upper left
+    // - cached    'C' near upper right
+    // - favorite  '*' upper right
+    // - big X if deleted
+    // - big E if something is wrong
+    for (i = start, j = 0; i < max_file; i++, j++) {
+        // determine location of upper left
+        x = (j % 3) * 300;
+        y = (j / 3) * 200;
+        //INFO("x,y = %d %d\n", x, y);
+
+        // break out if location is below the bottom of the pane
+        if (y >= pane->h) {
+            break;
+        }
+
+        // display it
+        cache_file_read_directory_info(i, &fi);
+
+        if (fi.deleted || fi.error) {
+            sdl_render_text(pane, 
+                            x+300/2,   // xxx plus half char
+                            y+200/2, 
+                            60, 
+                            fi.deleted ? "X" : "E",
+                            GREEN, BLACK);
+            continue;
+        }
+
+        sdl_update_texture(texture, (void*)fi.pixels, 300*BYTES_PER_PIXEL);
+        sdl_render_texture(pane, x, y, texture);
+
+        if (selected[i]) {
+            sdl_render_text(pane, x+0, y+0, 30, "X", GREEN, BLACK);
+        }
+        if (fi.cached) {
+            sdl_render_text(pane, x+240, y+0, 30, "C", GREEN, BLACK);
+        }
+        if (fi.favorite) {
+            sdl_render_text(pane, x+270, y+0, 30, "*", YELLOW, BLACK);
+        }
+    }
+        
+    // register for events
+}
+
+static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
+{
+    int rc = PANE_HANDLER_RET_NO_ACTION;
+
+    switch (event->event_id) {
+    case SDL_EVENT_KEY_ESC: case 'd':
+        display_select = DISPLAY_SELECT_MBS;
+        enum_needed = true;
         break;
     case 'q':
         rc = PANE_HANDLER_RET_PANE_TERMINATE;
