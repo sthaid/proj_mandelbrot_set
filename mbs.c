@@ -9,7 +9,8 @@
 #define DEFAULT_WIN_WIDTH         1200
 #define DEFAULT_WIN_HEIGHT        800
 
-#define INITIAL_CTR               (-0.75 + 0.0*I)
+//xxx #define INITIAL_CTR               (-0.75 + 0.0*I)
+#define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
 
 #define ZOOM_STEP                 .1   // must be a submultiple of 1
 
@@ -36,6 +37,7 @@ static double  pixel_size_at_zoom0;
 
 //
 // prototypes
+// XXX move all protos and vars up here
 //
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
@@ -43,8 +45,16 @@ static double zoom_step(double z, bool dir_is_incr);
 static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *color_lut);
 static void set_alert(int color, char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
 static void display_alert(rect_t *pane);
-static void display_info(rect_t *pane, double lcl_zoom, int wavelen_start, int wavelen_scale,
+static void display_info_proc(rect_t *pane, double lcl_zoom, int wavelen_start, int wavelen_scale,
                          unsigned long update_intvl_ms);
+
+static void render_hndlr_mbs(pane_cx_t *pane_cx);
+static void render_hndlr_help(pane_cx_t *pane_cx);
+static void render_hndlr_color_lut(pane_cx_t *pane_cx);
+
+static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event);
+static int event_hndlr_help(pane_cx_t *pane_cx, sdl_event_t *event);
+static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event);
 
 // -----------------  MAIN  -------------------------------------------------
 
@@ -108,29 +118,24 @@ int main(int argc, char **argv)
 
 // -----------------  PANE_HNDLR  ---------------------------------------
 
+static texture_t     texture;
+static unsigned int *pixels;
+static complex       lcl_ctr;  // xxx rename
+static double        lcl_zoom;  // xxx rename
+static int           auto_zoom;
+static int           auto_zoom_last;
+static unsigned long last_update_time_us;
+static bool          full_screen;
+static bool          display_info;
+static int           display_select;
+static bool          force;
+static int           wavelen_start;
+static int           wavelen_scale;
+static unsigned int  color_lut[65536];
+
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
-    struct {
-        texture_t     texture;
-        unsigned int *pixels;
-        complex       lcl_ctr;
-        double        lcl_zoom;
-        int           auto_zoom;
-        int           auto_zoom_last;
-        unsigned long last_update_time_us;
-        bool          full_screen;
-        bool          display_info;
-        int           display_select;
-        bool          force;
-        int           wavelen_start;
-        int           wavelen_scale;
-        unsigned int  color_lut[65536];
-    } * vars = pane_cx->vars;
     rect_t * pane = &pane_cx->pane;
-
-    #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 0)
-    #define SDL_EVENT_PAN      (SDL_EVENT_USER_DEFINED + 1)
-    #define SDL_EVENT_ZOOM     (SDL_EVENT_USER_DEFINED + 2)
 
     // ----------------------------
     // -------- INITIALIZE --------
@@ -139,23 +144,21 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         INFO("PANE x,y,w,h  %d %d %d %d\n", pane->x, pane->y, pane->w, pane->h);
 
-        vars = pane_cx->vars = calloc(1,sizeof(*vars));
+        texture             = NULL;
+        pixels              = NULL;
+        lcl_ctr             = INITIAL_CTR;
+        lcl_zoom            = 0;
+        auto_zoom           = 0;
+        auto_zoom_last      = 1;    //xxx needs defines
+        last_update_time_us = microsec_timer();
+        full_screen         = false;
+        display_info        = true;
+        display_select      = DISPLAY_SELECT_MBS;
+        force               = false;
+        wavelen_start       = WAVELEN_START_DEFAULT;
+        wavelen_scale       = WAVELEN_SCALE_DEFAULT;
 
-        vars->texture             = sdl_create_texture(pane->w, pane->h);
-        vars->pixels              = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
-        vars->lcl_ctr             = INITIAL_CTR;
-        vars->lcl_zoom            = 0;
-        vars->auto_zoom           = 0;
-        vars->auto_zoom_last      = 1;    //xxx needs defines
-        vars->last_update_time_us = microsec_timer();
-        vars->full_screen         = false;
-        vars->display_info        = true;
-        vars->display_select      = DISPLAY_SELECT_MBS;
-        vars->force               = false;
-        vars->wavelen_start       = WAVELEN_START_DEFAULT;
-        vars->wavelen_scale       = WAVELEN_SCALE_DEFAULT;
-
-        init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
 
         return PANE_HANDLER_RET_NO_ACTION;
     }
@@ -175,154 +178,19 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             win_width = new_win_width;
             win_height = new_win_height;
         }
-    }
 
-    if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_HELP) {
-        FILE *fp;
-        char s[200];
-        int row, len;
-
-        if ((fp = fopen("mbs_help.txt", "r")) != NULL) {
-            for (row = 0; fgets(s,sizeof(s),fp); row++) {
-                len = strlen(s);
-                if (len > 0 && s[len-1] == '\n') s[len-1] = '\0';
-                sdl_render_printf(pane, 0, ROW2Y(row,20), 20, WHITE, BLACK, "%s", s);
-            }
-            fclose(fp);
+        switch (display_select) {
+        case DISPLAY_SELECT_MBS:
+            render_hndlr_mbs(pane_cx);
+            break;
+        case DISPLAY_SELECT_COLOR_LUT:
+            render_hndlr_color_lut(pane_cx);
+            break;
+        case DISPLAY_SELECT_HELP:
+            render_hndlr_help(pane_cx);
+            break;
         }
 
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
-    if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_COLOR_LUT) {
-        int i, x, y, x_start;
-        unsigned char r,g,b;
-        char title[100];
-
-        x_start = (pane->w - MBSVAL_IN_SET) / 2;
-        for (i = 0; i < MBSVAL_IN_SET; i++) {
-            PIXEL_TO_RGB(vars->color_lut[i],r,g,b);           
-            x = x_start + i;
-            y = pane->h/2 - 400/2;
-            sdl_define_custom_color(20, r,g,b);
-            sdl_render_line(pane, x, y, x, y+400, 20);  // xxx y should be centered
-        }
-
-        sprintf(title,"COLOR MAP - START=%d nm  SCALE=%d",
-                vars->wavelen_start, vars->wavelen_scale);
-        x   = pane->w/2 - COL2X(strlen(title),30)/2;
-        sdl_render_printf(pane, x, 0, 30,  WHITE, BLACK, "%s", title);
-
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
-    if (request == PANE_HANDLER_REQ_RENDER && vars->display_select == DISPLAY_SELECT_MBS) {
-        int            idx = 0, pixel_x, pixel_y;
-        unsigned int * pixels = vars->pixels;
-        unsigned long  time_now_us = microsec_timer();
-        unsigned long  update_intvl_ms;
-
-        // debug
-        update_intvl_ms = (time_now_us - vars->last_update_time_us) / 1000;
-        vars->last_update_time_us = time_now_us;
-
-        // if the texture hasn't been allocated yet, or the size of the
-        // texture doesn't match the size of the pane then
-        // re-allocate the texture and the pixels array
-        int new_texture_width, new_texture_height;
-        if ((vars->texture == NULL) ||
-            ((sdl_query_texture(vars->texture, &new_texture_width, &new_texture_height), true) &&
-             (new_texture_width != pane->w || new_texture_height != pane->h)))
-        {
-            DEBUG("ALLOCATING TEXTURE AND PIXELS w=%d h=%d\n", pane->w, pane->h);
-            sdl_destroy_texture(vars->texture);
-            free(vars->pixels);
-            vars->texture = sdl_create_texture(pane->w, pane->h);
-            vars->pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
-            pixels = vars->pixels;
-        }
-
-        // xxx
-        if (vars->auto_zoom != 0) {
-            vars->lcl_zoom = zoom_step(vars->lcl_zoom, vars->auto_zoom == 1);
-            if (vars->lcl_zoom == 0) {
-                vars->auto_zoom = 0;
-            }
-            if (vars->lcl_zoom == LAST_ZOOM) { //xxx is this exact, probably because of zoom_step
-                vars->auto_zoom = 0;
-            }
-        }
-
-        // inform mandelbrot set cache of the current ctr and zoom
-        if (vars->force) {
-            INFO("debug force cache_thread to run\n");
-        }
-        cache_param_change(vars->lcl_ctr, floor(vars->lcl_zoom), win_width, win_height, vars->force);
-        vars->force = false;
-
-        // get the cached mandelbrot set values; and
-        // convert them to pixel color values
-        unsigned short * mbsval = malloc(win_height*win_width*2);
-        cache_get_mbsval(mbsval);
-        for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
-            for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
-                pixels[idx] = vars->color_lut[mbsval[idx]];
-                idx++;
-            }
-        }
-        free(mbsval);
-
-        // copy the pixels to the texture and render the texture
-        sdl_update_texture(vars->texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
-
-        // xxx
-        rect_t dst = {0,0,pane->w,pane->h};
-        rect_t src;
-        //if changed then do prints
-        static double lcl_zoom_last;
-        bool do_print = vars->lcl_zoom != lcl_zoom_last;
-        lcl_zoom_last = vars->lcl_zoom;
-        do_print = false; //xxx
-
-        double xxx = pow(2, -(vars->lcl_zoom - floor(vars->lcl_zoom)));
-
-        src.w = pane->w * xxx;
-        src.h = pane->h * xxx;
-        src.x = (pane->w - src.w) / 2;
-        src.y = (pane->h - src.h) / 2;
-
-        if (do_print) INFO("xxx = %.25lf  xywh = %d %d %d %d\n", 
-                            xxx, src.x, src.y, src.w, src.h);
-
-        sdl_render_scaled_texture_ex(pane, &src, &dst, vars->texture);
-
-        // display info in upper left corner
-        if (vars->display_info) {
-            display_info(pane, 
-                         vars->lcl_zoom, 
-                         vars->wavelen_start, 
-                         vars->wavelen_scale,
-                         update_intvl_ms);
-        }
-
-        // display alert messages in the center of the pane
-        display_alert(pane);
-
-        // when debug_enabled display a squae in the center of the pane;
-        // the purpose is to be able to check that the screen's pixels are square
-        // (if the display settings aspect ratio doesn't match the physical screen
-        //  dimensions then the pixels will not be square)
-        if (debug_enabled) {
-            rect_t loc = {pane->w/2-100, pane->h/2-100, 200, 200};
-            sdl_render_rect(pane, &loc, 1, WHITE);
-        }
-
-        // register for events
-        sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
-        sdl_register_event(pane, pane, SDL_EVENT_PAN, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
-        sdl_register_event(pane, pane, SDL_EVENT_ZOOM, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
-
-        // return
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -330,214 +198,22 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // -------- EVENT --------
     // -----------------------
 
-    if (request == PANE_HANDLER_REQ_EVENT && vars->display_select == DISPLAY_SELECT_HELP) {
-        switch (event->event_id) {
-        case SDL_EVENT_KEY_ESC: case 'h':
-            vars->display_select = DISPLAY_SELECT_MBS;
+    if (request == PANE_HANDLER_REQ_EVENT) {
+        int rc;
+
+        switch (display_select) {
+        case DISPLAY_SELECT_MBS:
+            rc = event_hndlr_mbs(pane_cx, event);
             break;
-        case 'q':
-            return PANE_HANDLER_RET_PANE_TERMINATE;
+        case DISPLAY_SELECT_COLOR_LUT:
+            rc = event_hndlr_color_lut(pane_cx, event);
+            break;
+        case DISPLAY_SELECT_HELP:
+            rc = event_hndlr_help(pane_cx, event);
             break;
         }
 
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
-    if (request == PANE_HANDLER_REQ_EVENT && vars->display_select == DISPLAY_SELECT_COLOR_LUT) {
-        switch (event->event_id) {
-        case SDL_EVENT_KEY_ESC: case 'c':
-            vars->display_select = DISPLAY_SELECT_MBS;
-            break;
-        case 'R':
-            vars->wavelen_start = WAVELEN_START_DEFAULT;
-            vars->wavelen_scale = WAVELEN_SCALE_DEFAULT;
-            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
-            break;
-        case SDL_EVENT_KEY_UP_ARROW: case SDL_EVENT_KEY_DOWN_ARROW:
-            vars->wavelen_scale = vars->wavelen_scale +
-                                  (event->event_id == SDL_EVENT_KEY_UP_ARROW ? 1 : -1);
-            if (vars->wavelen_scale < 0) vars->wavelen_scale = 0;
-            if (vars->wavelen_scale > 8) vars->wavelen_scale = 8;
-            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
-            break;
-        case SDL_EVENT_KEY_LEFT_ARROW: case SDL_EVENT_KEY_RIGHT_ARROW:
-            vars->wavelen_start = vars->wavelen_start +
-                                  (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW ? 1 : -1);
-            if (vars->wavelen_start < WAVELEN_FIRST) vars->wavelen_start = WAVELEN_LAST;
-            if (vars->wavelen_start > WAVELEN_LAST) vars->wavelen_start = WAVELEN_FIRST;
-            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
-            break;
-        case 'q':
-            return PANE_HANDLER_RET_PANE_TERMINATE;
-            break;
-        }
-
-        return PANE_HANDLER_RET_NO_ACTION;
-    }
-
-    if (request == PANE_HANDLER_REQ_EVENT && vars->display_select == DISPLAY_SELECT_MBS) {
-        switch (event->event_id) {
-
-        // --- GENERAL ---
-        case 'h':
-            vars->display_select = DISPLAY_SELECT_HELP;
-            break;
-        case 'q':
-            return PANE_HANDLER_RET_PANE_TERMINATE;
-            break;
-        case 'i':
-            vars->display_info = !vars->display_info;
-            break;
-        case 'c':
-            vars->display_select = DISPLAY_SELECT_COLOR_LUT;
-            break;
-        case 'r':
-            vars->lcl_ctr  = INITIAL_CTR;
-            vars->lcl_zoom = 0;
-            break;
-        case 'R':
-            vars->wavelen_start = WAVELEN_START_DEFAULT;
-            vars->wavelen_scale = WAVELEN_SCALE_DEFAULT;
-            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
-            break;
-
-        // --- DEBUG ---
-        case SDL_EVENT_KEY_F(1):
-            debug_enabled = !debug_enabled;
-            break;
-        case SDL_EVENT_KEY_F(2):
-            vars->force = true;
-            break;
-
-        // --- FULL SCREEN ---
-        case 'f': {
-            vars->full_screen = !vars->full_screen;
-            DEBUG("set full_screen to %d\n", vars->full_screen);
-            sdl_full_screen(vars->full_screen);
-            break; }
-
-        // --- COLOR CONTROLS ---
-        case SDL_EVENT_KEY_UP_ARROW: case SDL_EVENT_KEY_DOWN_ARROW:
-            vars->wavelen_scale = vars->wavelen_scale +
-                                  (event->event_id == SDL_EVENT_KEY_UP_ARROW ? 1 : -1);
-            if (vars->wavelen_scale < 0) vars->wavelen_scale = 0;
-            if (vars->wavelen_scale > 8) vars->wavelen_scale = 8;
-            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
-            break;
-        case SDL_EVENT_KEY_LEFT_ARROW: case SDL_EVENT_KEY_RIGHT_ARROW:
-            vars->wavelen_start = vars->wavelen_start +
-                                  (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW ? 1 : -1);
-            if (vars->wavelen_start < WAVELEN_FIRST) vars->wavelen_start = WAVELEN_LAST;
-            if (vars->wavelen_start > WAVELEN_LAST) vars->wavelen_start = WAVELEN_FIRST;
-            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
-            break;
-
-        // --- CENTER ---
-        case SDL_EVENT_PAN: {
-            double pixel_size = pixel_size_at_zoom0 * pow(2,-vars->lcl_zoom);
-            vars->lcl_ctr += -(event->mouse_motion.delta_x * pixel_size) + 
-                             -(event->mouse_motion.delta_y * pixel_size) * I;
-            break; }
-        case SDL_EVENT_CENTER: {
-            double pixel_size = pixel_size_at_zoom0 * pow(2,-vars->lcl_zoom);
-            vars->lcl_ctr += ((event->mouse_click.x - (pane->w/2)) * pixel_size) + 
-                             ((event->mouse_click.y - (pane->h/2)) * pixel_size) * I;
-            break; }
-
-        // --- ZOOM ---
-        case '+': case '=': case '-':
-            vars->lcl_zoom = zoom_step(vars->lcl_zoom, 
-                                       event->event_id == '+' || event->event_id == '=');
-            break;
-        case SDL_EVENT_ZOOM:
-            if (event->mouse_wheel.delta_y > 0) {
-                vars->lcl_zoom = zoom_step(vars->lcl_zoom, true);
-            } else if (event->mouse_wheel.delta_y < 0) {
-                vars->lcl_zoom = zoom_step(vars->lcl_zoom, false);
-            }
-            break;
-        case 'z':
-            if (vars->lcl_zoom == LAST_ZOOM) {
-                vars->lcl_zoom = 0;
-            } else {
-                vars->lcl_zoom = LAST_ZOOM;
-            }
-            break;
-
-        // --- AUTO ZOOM ---
-        case 'a':
-            // xxx comment
-            if (vars->auto_zoom != 0) {
-                vars->auto_zoom_last = vars->auto_zoom;
-                vars->auto_zoom = 0;
-            } else {
-                if (vars->lcl_zoom == 0) {
-                    vars->auto_zoom = 1;
-                } else if (vars->lcl_zoom == LAST_ZOOM) {
-                    vars->auto_zoom = 2;
-                } else {
-                    vars->auto_zoom = vars->auto_zoom_last;
-                }
-            }
-            break;
-        case 'A': 
-            // flip dir of autozoom
-            if (vars->auto_zoom == 1) {
-                vars->auto_zoom = 2;
-            } else if (vars->auto_zoom == 2) {
-                vars->auto_zoom = 1;
-            } else {
-                vars->auto_zoom_last = (vars->auto_zoom_last == 1 ? 2 : 1);
-            }
-            break;
-
-        // --- READ AND WRITE FILES ---
-        case '0'...'9': {
-            complex new_ctr;
-            double  new_zoom;
-            int     new_wavelen_start;
-            int     new_wavelen_scale;
-            bool    succ;
-            int     file_id = (event->event_id - '0');
-            char    file_name[100];
-            sprintf(file_name, "mbs_%d.dat", file_id);
-            succ = cache_read(file_name, &new_ctr, &new_zoom, 
-                              &new_wavelen_start, &new_wavelen_scale);
-            if (succ) {
-                set_alert(GREEN, "Read %s Okay", file_name);
-            } else {
-                set_alert(RED, "Read %s Failed", file_name);
-                break;
-            }
-            vars->lcl_ctr = new_ctr;
-            vars->lcl_zoom = new_zoom;
-            vars->wavelen_start = new_wavelen_start;
-            vars->wavelen_scale = new_wavelen_scale;
-            init_color_lut(vars->wavelen_start, vars->wavelen_scale, vars->color_lut);
-            break; }
-        case SDL_EVENT_KEY_CTRL+'0'...SDL_EVENT_KEY_CTRL+'9': 
-        case SDL_EVENT_KEY_ALT+'0'...SDL_EVENT_KEY_ALT+'9': {
-            bool require_cache_thread_finished = 
-                           event->event_id >= SDL_EVENT_KEY_CTRL+'0' &&
-                           event->event_id <= SDL_EVENT_KEY_CTRL+'9';
-            int file_id = (require_cache_thread_finished
-                           ? (event->event_id - (SDL_EVENT_KEY_CTRL+'0'))
-                           : (event->event_id - (SDL_EVENT_KEY_ALT+'0')));
-            char file_name[100];
-            bool succ;
-            sprintf(file_name, "mbs_%d.dat", file_id);
-            succ = cache_write(file_name, vars->lcl_ctr, vars->lcl_zoom, 
-                               vars->wavelen_start, vars->wavelen_scale,
-                               require_cache_thread_finished);
-            if (succ) {
-                set_alert(GREEN, "Write %s Okay", file_name);
-            } else {
-                set_alert(RED, "Write %s Failed", file_name);
-            }
-            break; }
-        }
-
-        return PANE_HANDLER_RET_NO_ACTION;
+        return rc;
     }
 
     // ---------------------------
@@ -545,15 +221,297 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ---------------------------
 
     if (request == PANE_HANDLER_REQ_TERMINATE) {
-        sdl_destroy_texture(vars->texture);
-        free(vars->pixels);
-        free(vars);
+        sdl_destroy_texture(texture);
+        free(pixels);
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
     // not reached
     assert(0);
     return PANE_HANDLER_RET_NO_ACTION;
+}
+
+// - - - - - - - - -  PANE_HNDLR : MBS   - - - - - - - - - - - - - - - -
+
+static void render_hndlr_mbs(pane_cx_t *pane_cx)
+{
+    int            idx = 0, pixel_x, pixel_y;
+    unsigned long  time_now_us = microsec_timer();
+    unsigned long  update_intvl_ms;
+    rect_t       * pane = &pane_cx->pane;
+
+    #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 0)
+    #define SDL_EVENT_PAN      (SDL_EVENT_USER_DEFINED + 1)
+    #define SDL_EVENT_ZOOM     (SDL_EVENT_USER_DEFINED + 2)
+
+    // debug  xxx comment
+    update_intvl_ms = (time_now_us - last_update_time_us) / 1000;
+    last_update_time_us = time_now_us;
+
+    // if the texture hasn't been allocated yet, or the size of the
+    // texture doesn't match the size of the pane then
+    // re-allocate the texture and the pixels array
+    int new_texture_width, new_texture_height;
+    if ((texture == NULL) ||
+        ((sdl_query_texture(texture, &new_texture_width, &new_texture_height), true) &&
+         (new_texture_width != pane->w || new_texture_height != pane->h)))
+    {
+        DEBUG("ALLOCATING TEXTURE AND PIXELS w=%d h=%d\n", pane->w, pane->h);
+        sdl_destroy_texture(texture);
+        free(pixels);
+        texture = sdl_create_texture(pane->w, pane->h);
+        pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
+        pixels = pixels;
+    }
+
+    // xxx
+    if (auto_zoom != 0) {
+        lcl_zoom = zoom_step(lcl_zoom, auto_zoom == 1);
+        if (lcl_zoom == 0) {
+            auto_zoom = 0;
+        }
+        if (lcl_zoom == LAST_ZOOM) { //xxx is this exact, probably because of zoom_step
+            auto_zoom = 0;
+        }
+    }
+
+    // inform mandelbrot set cache of the current ctr and zoom
+    if (force) {
+        INFO("debug force cache_thread to run\n");
+    }
+    cache_param_change(lcl_ctr, floor(lcl_zoom), win_width, win_height, force);
+    force = false;
+
+    // get the cached mandelbrot set values; and
+    // convert them to pixel color values
+    unsigned short * mbsval = malloc(win_height*win_width*2);
+    cache_get_mbsval(mbsval);
+    for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
+        for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
+            pixels[idx] = color_lut[mbsval[idx]];
+            idx++;
+        }
+    }
+    free(mbsval);
+
+    // copy the pixels to the texture and render the texture
+    sdl_update_texture(texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
+
+    // xxx
+    rect_t dst = {0,0,pane->w,pane->h};
+    rect_t src;
+    //if changed then do prints
+    static double lcl_zoom_last;
+    bool do_print = lcl_zoom != lcl_zoom_last;
+    lcl_zoom_last = lcl_zoom;
+    do_print = false; //xxx
+
+    double xxx = pow(2, -(lcl_zoom - floor(lcl_zoom)));
+
+    src.w = pane->w * xxx;
+    src.h = pane->h * xxx;
+    src.x = (pane->w - src.w) / 2;
+    src.y = (pane->h - src.h) / 2;
+
+    if (do_print) INFO("xxx = %.25lf  xywh = %d %d %d %d\n", 
+                        xxx, src.x, src.y, src.w, src.h);
+
+    sdl_render_scaled_texture_ex(pane, &src, &dst, texture);
+
+    // display info in upper left corner
+    if (display_info) {
+        display_info_proc(pane, 
+                          lcl_zoom, 
+                          wavelen_start, 
+                          wavelen_scale,
+                          update_intvl_ms);
+    }
+
+    // display alert messages in the center of the pane
+    display_alert(pane);
+
+    // when debug_enabled display a squae in the center of the pane;
+    // the purpose is to be able to check that the screen's pixels are square
+    // (if the display settings aspect ratio doesn't match the physical screen
+    //  dimensions then the pixels will not be square)
+    if (debug_enabled) {
+        rect_t loc = {pane->w/2-100, pane->h/2-100, 200, 200};
+        sdl_render_rect(pane, &loc, 1, WHITE);
+    }
+
+    // register for events
+    sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
+    sdl_register_event(pane, pane, SDL_EVENT_PAN, SDL_EVENT_TYPE_MOUSE_MOTION, pane_cx);
+    sdl_register_event(pane, pane, SDL_EVENT_ZOOM, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
+}
+
+static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
+{
+    rect_t * pane = &pane_cx->pane;
+    int      rc   = PANE_HANDLER_RET_NO_ACTION;
+
+    switch (event->event_id) {
+
+    // --- GENERAL ---
+    case 'h':
+        display_select = DISPLAY_SELECT_HELP;
+        break;
+    case 'q':
+        rc = PANE_HANDLER_RET_PANE_TERMINATE;
+        break;
+    case 'i':
+        display_info = !display_info;
+        break;
+    case 'c':
+        display_select = DISPLAY_SELECT_COLOR_LUT;
+        break;
+    case 'r':
+        lcl_ctr  = INITIAL_CTR;
+        lcl_zoom = 0;
+        break;
+    case 'R':
+        wavelen_start = WAVELEN_START_DEFAULT;
+        wavelen_scale = WAVELEN_SCALE_DEFAULT;
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        break;
+
+    // --- DEBUG ---
+    case SDL_EVENT_KEY_F(1):
+        debug_enabled = !debug_enabled;
+        break;
+    case SDL_EVENT_KEY_F(2):
+        force = true;
+        break;
+
+    // --- FULL SCREEN ---
+    case 'f': {
+        full_screen = !full_screen;
+        DEBUG("set full_screen to %d\n", full_screen);
+        sdl_full_screen(full_screen);
+        break; }
+
+    // --- COLOR CONTROLS ---
+    case SDL_EVENT_KEY_UP_ARROW: case SDL_EVENT_KEY_DOWN_ARROW:
+        wavelen_scale = wavelen_scale +
+                              (event->event_id == SDL_EVENT_KEY_UP_ARROW ? 1 : -1);
+        if (wavelen_scale < 0) wavelen_scale = 0;
+        if (wavelen_scale > 8) wavelen_scale = 8;
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        break;
+    case SDL_EVENT_KEY_LEFT_ARROW: case SDL_EVENT_KEY_RIGHT_ARROW:
+        wavelen_start = wavelen_start +
+                              (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW ? 1 : -1);
+        if (wavelen_start < WAVELEN_FIRST) wavelen_start = WAVELEN_LAST;
+        if (wavelen_start > WAVELEN_LAST) wavelen_start = WAVELEN_FIRST;
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        break;
+
+    // --- CENTER ---
+    case SDL_EVENT_PAN: {
+        double pixel_size = pixel_size_at_zoom0 * pow(2,-lcl_zoom);
+        lcl_ctr += -(event->mouse_motion.delta_x * pixel_size) + 
+                         -(event->mouse_motion.delta_y * pixel_size) * I;
+        break; }
+    case SDL_EVENT_CENTER: {
+        double pixel_size = pixel_size_at_zoom0 * pow(2,-lcl_zoom);
+        lcl_ctr += ((event->mouse_click.x - (pane->w/2)) * pixel_size) + 
+                         ((event->mouse_click.y - (pane->h/2)) * pixel_size) * I;
+        break; }
+
+    // --- ZOOM ---
+    case '+': case '=': case '-':
+        lcl_zoom = zoom_step(lcl_zoom, 
+                                   event->event_id == '+' || event->event_id == '=');
+        break;
+    case SDL_EVENT_ZOOM:
+        if (event->mouse_wheel.delta_y > 0) {
+            lcl_zoom = zoom_step(lcl_zoom, true);
+        } else if (event->mouse_wheel.delta_y < 0) {
+            lcl_zoom = zoom_step(lcl_zoom, false);
+        }
+        break;
+    case 'z':
+        if (lcl_zoom == LAST_ZOOM) {
+            lcl_zoom = 0;
+        } else {
+            lcl_zoom = LAST_ZOOM;
+        }
+        break;
+
+    // --- AUTO ZOOM ---
+    case 'a':
+        // xxx comment
+        if (auto_zoom != 0) {
+            auto_zoom_last = auto_zoom;
+            auto_zoom = 0;
+        } else {
+            if (lcl_zoom == 0) {
+                auto_zoom = 1;
+            } else if (lcl_zoom == LAST_ZOOM) {
+                auto_zoom = 2;
+            } else {
+                auto_zoom = auto_zoom_last;
+            }
+        }
+        break;
+    case 'A': 
+        // flip dir of autozoom
+        if (auto_zoom == 1) {
+            auto_zoom = 2;
+        } else if (auto_zoom == 2) {
+            auto_zoom = 1;
+        } else {
+            auto_zoom_last = (auto_zoom_last == 1 ? 2 : 1);
+        }
+        break;
+
+    // --- READ AND WRITE FILES ---
+    case '0'...'9': {
+        complex new_ctr;
+        double  new_zoom;
+        int     new_wavelen_start;
+        int     new_wavelen_scale;
+        bool    succ;
+        int     file_id = (event->event_id - '0');
+        char    file_name[100];
+        sprintf(file_name, "mbs_%d.dat", file_id);
+        succ = cache_read(file_name, &new_ctr, &new_zoom, 
+                          &new_wavelen_start, &new_wavelen_scale);
+        if (succ) {
+            set_alert(GREEN, "Read %s Okay", file_name);
+        } else {
+            set_alert(RED, "Read %s Failed", file_name);
+            break;
+        }
+        lcl_ctr = new_ctr;
+        lcl_zoom = new_zoom;
+        wavelen_start = new_wavelen_start;
+        wavelen_scale = new_wavelen_scale;
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        break; }
+    case SDL_EVENT_KEY_CTRL+'0'...SDL_EVENT_KEY_CTRL+'9': 
+    case SDL_EVENT_KEY_ALT+'0'...SDL_EVENT_KEY_ALT+'9': {
+        bool require_cache_thread_finished = 
+                       event->event_id >= SDL_EVENT_KEY_CTRL+'0' &&
+                       event->event_id <= SDL_EVENT_KEY_CTRL+'9';
+        int file_id = (require_cache_thread_finished
+                       ? (event->event_id - (SDL_EVENT_KEY_CTRL+'0'))
+                       : (event->event_id - (SDL_EVENT_KEY_ALT+'0')));
+        char file_name[100];
+        bool succ;
+        sprintf(file_name, "mbs_%d.dat", file_id);
+        succ = cache_write(file_name, lcl_ctr, lcl_zoom, 
+                           wavelen_start, wavelen_scale,
+                           require_cache_thread_finished);
+        if (succ) {
+            set_alert(GREEN, "Write %s Okay", file_name);
+        } else {
+            set_alert(RED, "Write %s Failed", file_name);
+        }
+        break; }
+    }
+
+    return rc;
 }
 
 static double zoom_step(double z, bool dir_is_incr)
@@ -603,6 +561,7 @@ static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *c
     }
 }
 
+// XXX are alert still needed
 struct {
     char          str[200];
     int           color;
@@ -635,11 +594,11 @@ static void display_alert(rect_t *pane)
     sdl_render_printf(pane, x, y, alert_font_ptsize, alert.color, BLACK, "%s", alert.str);
 }
 
-static void display_info(rect_t *pane,
-                         double lcl_zoom,
-                         int wavelen_start,
-                         int wavelen_scale,
-                         unsigned long update_intvl_ms)
+static void display_info_proc(rect_t *pane,
+                              double lcl_zoom,
+                              int wavelen_start,
+                              int wavelen_scale,
+                              unsigned long update_intvl_ms)
 {
     char line[20][50];
     int  line_len[20];
@@ -675,4 +634,98 @@ static void display_info(rect_t *pane,
     for (i = 0; i < n; i++) {
         sdl_render_printf(pane, 0, ROW2Y(i,20), 20,  WHITE, BLACK, "%s", line[i]);
     }
+}
+
+// - - - - - - - - -  PANE_HNDLR : HELP  - - - - - - - - - - - - - - - -
+
+static void render_hndlr_help(pane_cx_t *pane_cx)
+{
+    FILE *fp;
+    char s[200];
+    int row, len;
+    rect_t * pane = &pane_cx->pane;
+
+    if ((fp = fopen("mbs_help.txt", "r")) != NULL) {
+        for (row = 0; fgets(s,sizeof(s),fp); row++) {
+            len = strlen(s);
+            if (len > 0 && s[len-1] == '\n') s[len-1] = '\0';
+            sdl_render_printf(pane, 0, ROW2Y(row,20), 20, WHITE, BLACK, "%s", s);
+        }
+        fclose(fp);
+    }
+}
+
+static int event_hndlr_help(pane_cx_t *pane_cx, sdl_event_t *event)
+{
+    int rc = PANE_HANDLER_RET_NO_ACTION;
+
+    switch (event->event_id) {
+    case SDL_EVENT_KEY_ESC: case 'h':
+        display_select = DISPLAY_SELECT_MBS;
+        break;
+    case 'q':
+        rc = PANE_HANDLER_RET_PANE_TERMINATE;
+        break;
+    }
+
+    return rc;
+}
+
+// - - - - - - - - -  PANE_HNDLR : COLOR_LUT   - - - - - - - - - - - - -
+
+static void render_hndlr_color_lut(pane_cx_t *pane_cx)
+{
+    int i, x, y, x_start;
+    unsigned char r,g,b;
+    char title[100];
+    rect_t * pane = &pane_cx->pane;
+
+    x_start = (pane->w - MBSVAL_IN_SET) / 2;
+    for (i = 0; i < MBSVAL_IN_SET; i++) {
+        PIXEL_TO_RGB(color_lut[i],r,g,b);           
+        x = x_start + i;
+        y = pane->h/2 - 400/2;
+        sdl_define_custom_color(20, r,g,b);
+        sdl_render_line(pane, x, y, x, y+400, 20);  // xxx y should be centered
+    }
+
+    sprintf(title,"COLOR MAP - START=%d nm  SCALE=%d",
+            wavelen_start, wavelen_scale);
+    x   = pane->w/2 - COL2X(strlen(title),30)/2;
+    sdl_render_printf(pane, x, 0, 30,  WHITE, BLACK, "%s", title);
+}
+
+static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
+{
+    int rc = PANE_HANDLER_RET_NO_ACTION;
+
+    switch (event->event_id) {
+    case SDL_EVENT_KEY_ESC: case 'c':
+        display_select = DISPLAY_SELECT_MBS;
+        break;
+    case 'R':
+        wavelen_start = WAVELEN_START_DEFAULT;
+        wavelen_scale = WAVELEN_SCALE_DEFAULT;
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        break;
+    case SDL_EVENT_KEY_UP_ARROW: case SDL_EVENT_KEY_DOWN_ARROW:
+        wavelen_scale = wavelen_scale +
+                              (event->event_id == SDL_EVENT_KEY_UP_ARROW ? 1 : -1);
+        if (wavelen_scale < 0) wavelen_scale = 0;
+        if (wavelen_scale > 8) wavelen_scale = 8;
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        break;
+    case SDL_EVENT_KEY_LEFT_ARROW: case SDL_EVENT_KEY_RIGHT_ARROW:
+        wavelen_start = wavelen_start +
+                              (event->event_id == SDL_EVENT_KEY_RIGHT_ARROW ? 1 : -1);
+        if (wavelen_start < WAVELEN_FIRST) wavelen_start = WAVELEN_LAST;
+        if (wavelen_start > WAVELEN_LAST) wavelen_start = WAVELEN_FIRST;
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        break;
+    case 'q':
+        rc = PANE_HANDLER_RET_PANE_TERMINATE;
+        break;
+    }
+
+    return rc;
 }
