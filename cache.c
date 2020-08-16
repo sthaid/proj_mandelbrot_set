@@ -14,7 +14,7 @@
 #define CACHE_HEIGHT                2000
 #define MBSVAL_BYTES                (CACHE_HEIGHT*CACHE_WIDTH*2)
 
-#define MAGIC_MBS_FILE              0x1122456755aa55aa
+#define MAGIC_MBS_FILE              0x5555555500000001
 
 #define CTR_INVALID                 (999 + 0 * I)
 
@@ -40,19 +40,6 @@ typedef struct {
     spiral_t          phase2_spiral;
     bool              phase2_spiral_done;
 } cache_t;
-
-typedef struct {
-    union {
-        struct {
-            long    magic;
-            complex ctr;
-            double  zoom;
-            int     wavelen_start;
-            int     wavelen_scale;
-        };
-        char bytes[512];
-    };
-} file_hdr_t;
 
 //
 // variables
@@ -187,6 +174,20 @@ void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog)
 
 // -----------------  API : FILE  -----------------------------------------------------
 
+typedef struct {
+    long         magic;
+    complex      ctr;
+    double       zoom;  // xxx maybe use zoom as int and also have zoom_fratction
+    int          wavelen_start;
+    int          wavelen_scale;
+    int          reserved[10];
+    unsigned int dir_pixels[200][300];
+    struct xxx_s {
+        cache_t cache;
+        unsigned short mbsval[CACHE_HEIGHT][CACHE_WIDTH];
+    } cache[0];
+} file_t;
+
 int cache_file_enumerate(void)
 {
     return 2;
@@ -205,8 +206,75 @@ void cache_file_read_directory_info(int idx, cache_file_info_t *fi)
 }
 
 bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
-                     unsigned int * pixels)
+                     unsigned int * dir_pixels)
 {
+    int rc, fd, len;
+    struct stat statbuf;
+    char filename[100];
+
+    static file_t *file;
+
+    #define FILE_SIZE (sizeof(file_t) + sizeof(struct xxx_s))
+    if (file == NULL) {
+        file = malloc(FILE_SIZE);
+    }
+
+    // make the .save directory, if needed
+    rc = stat(".save", &statbuf);
+    INFO("stat rc %d %d\n", rc, errno);
+    if (rc == 0 && (statbuf.st_mode & S_IFDIR) == 0) {
+        FATAL(".save exists and is not a directory\n");
+    }
+    if (rc < 0 && errno == ENOENT) {
+        rc = mkdir(".save", 0755);
+        if (rc != 0) {
+            FATAL("failed to create .save directory, %s\n", strerror(errno));
+        }
+        INFO("creted .save dir\n");
+    }
+
+    // construct filename from date, format: 
+    // - mbs_yyyy_mm_day_hh_mm_ss.dat OR
+    // - fav_yyyy_mm_day_hh_mm_ss.dat  (when the file is converted to a favorite
+    strcpy(filename, ".save/mbs_xxx.dat");
+
+    // stop the cache thread
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
+
+    // constuct a buffer containing:
+    // - file_hdr
+    // - directory_pixels
+    // - cache_t for the zoom level being saved
+    file->magic         = MAGIC_MBS_FILE;
+    file->ctr           = ctr;
+    file->zoom          = zoom;
+    file->wavelen_start = wavelen_start;
+    file->wavelen_scale = wavelen_scale;
+    memset(file->reserved, 0, sizeof(file->reserved));
+
+    memcpy(file->dir_pixels, dir_pixels, sizeof(file->dir_pixels));
+
+    file->cache[0].cache = cache[cache_zoom];
+    file->cache[0].cache.mbsval = NULL;
+    memcpy(file->cache[0].mbsval,  cache[cache_zoom].mbsval, MBSVAL_BYTES);
+
+    // run the cache thread
+    cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
+
+    // open, write, close
+    fd = open(filename, O_CREAT|O_EXCL|O_WRONLY, 0644);
+    if (fd < 0) {
+        ERROR("failed to create %s, %s\n", filename, strerror(errno));
+        return false;
+    }
+    len = write(fd, file, FILE_SIZE);
+    if (len != FILE_SIZE) {
+        ERROR("failed to write %s, %s\n", filename, strerror(errno));
+        return false;
+    }
+    close(fd);
+
+    // success
     return true;
 }
 
