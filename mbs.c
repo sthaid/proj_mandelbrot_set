@@ -765,7 +765,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     static int       max_file;
 
     int i, j, x, y;
-    cache_file_info_t fi;
+    cache_file_info_t *fi;
     rect_t *pane = &pane_cx->pane;
 
     //INFO("starting\n");
@@ -791,8 +791,8 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     // - big E if something is wrong
     for (i = start, j = 0; i < max_file; i++, j++) {
         // determine location of upper left
-        x = (j % 3) * 300;
-        y = (j / 3) * 200;
+        x = (j % 4) * 300;
+        y = (j / 4) * 200;
         //INFO("x,y = %d %d\n", x, y);
 
         // break out if location is below the bottom of the pane
@@ -803,26 +803,26 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         // display it
         cache_file_read_directory_info(i, &fi);
 
-        if (fi.deleted || fi.error) {
+        if (fi->deleted || fi->error) {
             sdl_render_text(pane, 
                             x+300/2,   // xxx plus half char
                             y+200/2, 
                             60, 
-                            fi.deleted ? "X" : "E",
+                            fi->deleted ? "X" : "E",
                             GREEN, BLACK);
             continue;
         }
 
-        sdl_update_texture(texture, (void*)fi.pixels, 300*BYTES_PER_PIXEL);
+        sdl_update_texture(texture, (void*)fi->pixels, 300*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
 
         if (selected[i]) {
             sdl_render_text(pane, x+0, y+0, 30, "X", GREEN, BLACK);
         }
-        if (fi.cached) {
+        if (fi->cached) {
             sdl_render_text(pane, x+240, y+0, 30, "C", GREEN, BLACK);
         }
-        if (fi.favorite) {
+        if (fi->favorite) {
             sdl_render_text(pane, x+270, y+0, 30, "*", YELLOW, BLACK);
         }
     }

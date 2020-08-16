@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <dirent.h>
 
 #define DEBUG_PRINT_ENABLED (debug_enabled)
 #include <util_misc.h>
@@ -39,7 +40,7 @@ typedef struct {
     bool error;
     bool cached;
     bool favorite;
-    unsigned int *pixels;
+    unsigned int pixels[200][300];
 } cache_file_info_t;
 
 //
@@ -66,7 +67,7 @@ bool cache_read(char *file_name, complex *ctr, double *zoom, int *wavelen_start,
 #endif
 
 int cache_file_enumerate(void);
-void cache_file_read_directory_info(int idx, cache_file_info_t *fi);
+void cache_file_read_directory_info(int idx, cache_file_info_t **fi);
 bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
                      unsigned int * pixels);
 

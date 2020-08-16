@@ -188,21 +188,109 @@ typedef struct {
     } cache[0];
 } file_t;
 
-int cache_file_enumerate(void)
+typedef struct {
+    char filename[300];
+    bool fi_valid;
+    cache_file_info_t fi;
+} xxx_t;
+
+xxx_t *xxx[1000];
+int max_xxx;
+
+int compare(const void *arg1, const void *arg2)
 {
-    return 2;
+    xxx_t *a = *(xxx_t**)arg1;
+    xxx_t *b = *(xxx_t**)arg2;
+    return strcmp(a->filename, b->filename);
 }
 
-void cache_file_read_directory_info(int idx, cache_file_info_t *fi)
+int cache_file_enumerate(void)
 {
-    memset(fi, 0, sizeof(cache_file_info_t));
+    DIR *d;
+    struct dirent *de;
 
-    if (idx >= 2) {
-        fi->error = true;
+    d = opendir(".save");
+    if (d == NULL) {
+        FATAL("failed opendir .save, %s\n", strerror(errno));
+    }
+
+    max_xxx = 0;
+
+    while ((de = readdir(d)) != NULL) {
+        xxx_t *x;
+
+        char *filename = de->d_name;
+        if (strncmp(filename, "mbs_", 4) != 0 && strncmp(filename, "fav_", 4) != 0) {
+            continue;
+        }
+        INFO("GOT %s\n", filename);
+
+        x = malloc(sizeof(xxx_t));
+        memset(x,0,sizeof(xxx_t));
+
+        sprintf(x->filename, ".save/%s", filename);
+        free(xxx[max_xxx]);
+        xxx[max_xxx++] = x;
+    }
+    qsort(xxx, max_xxx, sizeof(void*), compare);
+
+    int i;
+    for (i = 0; i < max_xxx; i++) {
+        INFO("sorted - %s\n", xxx[i]->filename);
+    }
+
+    closedir(d);
+
+    return max_xxx;
+}
+
+void cache_file_read_directory_info(int idx, cache_file_info_t **fi)
+{
+    bool err;
+    int fd, len;
+    file_t file;
+    xxx_t *x;
+
+    static cache_file_info_t fi_error = {.error=true};
+
+    if (idx >= max_xxx) {
+        *fi = &fi_error;
         return;
     }
 
-    fi->deleted = true;
+    x = xxx[idx];
+
+    if (!x->fi_valid) {
+        err = false;
+
+        fd = open(x->filename, O_RDONLY);
+        if (fd == -1) {
+            ERROR("failed open %s, %s\n", x->filename, strerror(errno));
+            err = true;
+        } else {
+            len = read(fd, &file, sizeof(file_t));
+            if (len != sizeof(file_t)) {
+                ERROR("failed read %s, %s\n", x->filename, strerror(errno));
+                err = true;
+            }
+            close(fd);
+        }
+
+        x->fi.deleted   = false;
+        x->fi.error     = err;
+        x->fi.cached    = false;
+        x->fi.favorite  = false;
+        if (!err) {
+            memcpy(x->fi.pixels, file.dir_pixels, sizeof(x->fi.pixels));
+        } else {
+            memset(x->fi.pixels, 0, sizeof(x->fi.pixels));
+        }
+
+        x->fi_valid = true;
+        INFO("x->fi_valid is true for %s\n", x->filename);
+    }
+
+    *fi = &x->fi;
 }
 
 bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
@@ -211,6 +299,8 @@ bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_sc
     int rc, fd, len;
     struct stat statbuf;
     char filename[100];
+    time_t t;
+    struct tm *tm;
 
     static file_t *file;
 
@@ -234,9 +324,13 @@ bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_sc
     }
 
     // construct filename from date, format: 
-    // - mbs_yyyy_mm_day_hh_mm_ss.dat OR
-    // - fav_yyyy_mm_day_hh_mm_ss.dat  (when the file is converted to a favorite
+    // - mbs_yyyy_mm_day_hhmmss.dat OR
+    // - fav_yyyy_mm_day_hhmmss.dat  (when the file is converted to a favorite
     strcpy(filename, ".save/mbs_xxx.dat");
+    t = time(NULL);
+    tm = localtime(&t);
+    sprintf(filename, ".save/mbs_%04d_%02d_%02d_%02d%02d%02d.dat",
+            tm->tm_year+1900, tm->tm_mon+1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
 
     // stop the cache thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
