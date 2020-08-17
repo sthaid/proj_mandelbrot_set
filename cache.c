@@ -114,7 +114,7 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
     // stop the cache_thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
 
-    // if either window dimension has increased then 
+    // if either window dimension has increased then   XXX or just changed
     // all of the spirals need to be reset; also
     // reset the spirals when the force flag is set
     if (win_width > cache_win_width || win_height > cache_win_height || force) {
@@ -140,13 +140,14 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
     cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
 }
 
-void cache_get_mbsval(unsigned short *mbsval)
+// xxx maybe should pass in win_width/height
+void cache_get_mbsval(unsigned short *mbsval, int width, int height)
 {
     int idx_b, idx_b_first, idx_b_last;
     cache_t *cp = &cache[cache_zoom];
 
-    idx_b_first =  (CACHE_HEIGHT/2) + cache_win_height / 2;
-    idx_b_last  = idx_b_first - cache_win_height + 1;
+    idx_b_first =  (CACHE_HEIGHT/2) + height / 2;
+    idx_b_last  = idx_b_first - height + 1;
 
     if ((fabs(creal(cp->ctr) - creal(cache_ctr)) > 1.1 * cp->pixel_size) ||
         (fabs(cimag(cp->ctr) - cimag(cache_ctr)) > 1.1 * cp->pixel_size))
@@ -159,9 +160,9 @@ void cache_get_mbsval(unsigned short *mbsval)
 
     for (idx_b = idx_b_first; idx_b >= idx_b_last; idx_b--) {
         memcpy(mbsval, 
-               &(*cp->mbsval)[idx_b][(CACHE_WIDTH/2)-cache_win_width/2],
-               cache_win_width*sizeof(mbsval[0]));
-        mbsval += cache_win_width;
+               &(*cp->mbsval)[idx_b][(CACHE_WIDTH/2)-width/2],
+               width*sizeof(mbsval[0]));
+        mbsval += width;
     }
 }
 

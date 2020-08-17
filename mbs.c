@@ -48,6 +48,7 @@ static void set_alert(int color, char *fmt, ...) __attribute__ ((format (printf,
 static void display_alert(rect_t *pane);
 static void display_info_proc(rect_t *pane, double lcl_zoom, int wavelen_start, int wavelen_scale,
                          unsigned long update_intvl_ms);
+static void save_file(rect_t *pane);
 
 static void render_hndlr_mbs(pane_cx_t *pane_cx);
 static void render_hndlr_help(pane_cx_t *pane_cx);
@@ -136,6 +137,12 @@ static bool          force;
 static int           wavelen_start;
 static int           wavelen_scale;
 static unsigned int  color_lut[65536];
+
+struct {
+    char          str[200];
+    int           color;
+    unsigned long expire_us;
+} alert;
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
@@ -288,13 +295,14 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     if (force) {
         INFO("debug force cache_thread to run\n");
     }
+// XXX use pane->w instead of win_width
     cache_param_change(lcl_ctr, floor(lcl_zoom), win_width, win_height, force);
     force = false;
 
     // get the cached mandelbrot set values; and
     // convert them to pixel color values
     unsigned short * mbsval = malloc(win_height*win_width*2);
-    cache_get_mbsval(mbsval);
+    cache_get_mbsval(mbsval, win_width, win_height);
     for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
         for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
             pixels[idx] = color_lut[mbsval[idx]];
@@ -383,18 +391,12 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
     case 'i':
         display_info = !display_info;
         break;
-    case 's': {//XXX
-        static unsigned int pixels[300*200];
-        int i;
-        bool succ;
-        for (i = 0; i < 60000; i++) pixels[i] = PIXEL_YELLOW;
-        succ = cache_file_save(lcl_ctr, lcl_zoom, wavelen_start, wavelen_scale, pixels);
-        set_alert(succ ? GREEN : RED, succ ? "SAVE OKAY" : "SAVE FAILED");
+    case 's': {
+        save_file(pane);
         break; }
     case 'q':
         rc = PANE_HANDLER_RET_PANE_TERMINATE;
         break;
-// XXX 's'
 
     // --- DEBUG ---
     case SDL_EVENT_KEY_F(1):
@@ -485,53 +487,6 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
             auto_zoom_last = (auto_zoom_last == 1 ? 2 : 1);
         }
         break;
-
-#if 0
-    // --- READ AND WRITE FILES ---
-    case '0'...'9': {
-        complex new_ctr;
-        double  new_zoom;
-        int     new_wavelen_start;
-        int     new_wavelen_scale;
-        bool    succ;
-        int     file_id = (event->event_id - '0');
-        char    file_name[100];
-        sprintf(file_name, "mbs_%d.dat", file_id);
-        succ = cache_read(file_name, &new_ctr, &new_zoom, 
-                          &new_wavelen_start, &new_wavelen_scale);
-        if (succ) {
-            set_alert(GREEN, "Read %s Okay", file_name);
-        } else {
-            set_alert(RED, "Read %s Failed", file_name);
-            break;
-        }
-        lcl_ctr = new_ctr;
-        lcl_zoom = new_zoom;
-        wavelen_start = new_wavelen_start;
-        wavelen_scale = new_wavelen_scale;
-        init_color_lut(wavelen_start, wavelen_scale, color_lut);
-        break; }
-    case SDL_EVENT_KEY_CTRL+'0'...SDL_EVENT_KEY_CTRL+'9': 
-    case SDL_EVENT_KEY_ALT+'0'...SDL_EVENT_KEY_ALT+'9': {
-        bool require_cache_thread_finished = 
-                       event->event_id >= SDL_EVENT_KEY_CTRL+'0' &&
-                       event->event_id <= SDL_EVENT_KEY_CTRL+'9';
-        int file_id = (require_cache_thread_finished
-                       ? (event->event_id - (SDL_EVENT_KEY_CTRL+'0'))
-                       : (event->event_id - (SDL_EVENT_KEY_ALT+'0')));
-        char file_name[100];
-        bool succ;
-        sprintf(file_name, "mbs_%d.dat", file_id);
-        succ = cache_write(file_name, lcl_ctr, lcl_zoom, 
-                           wavelen_start, wavelen_scale,
-                           require_cache_thread_finished);
-        if (succ) {
-            set_alert(GREEN, "Write %s Okay", file_name);
-        } else {
-            set_alert(RED, "Write %s Failed", file_name);
-        }
-        break; }
-#endif
     }
 
     return rc;
@@ -584,13 +539,6 @@ static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *c
     }
 }
 
-// XXX are alert still needed
-struct {
-    char          str[200];
-    int           color;
-    unsigned long expire_us;
-} alert;
-
 static void set_alert(int color, char *fmt, ...)
 {
     va_list ap;
@@ -628,6 +576,7 @@ static void display_info_proc(rect_t *pane,
     int  n=0, max_len=0, i;
     int  phase, percent_complete, zoom_lvl_inprog;
 
+// XXX pane->w instead of win_width
     // print info to line[] array
     sprintf(line[n++], "Window: %d %d", win_width, win_height);
     sprintf(line[n++], "Zoom:   %0.2f", lcl_zoom);
@@ -657,6 +606,46 @@ static void display_info_proc(rect_t *pane,
     for (i = 0; i < n; i++) {
         sdl_render_printf(pane, 0, ROW2Y(i,20), 20,  WHITE, BLACK, "%s", line[i]);
     }
+}
+
+static void save_file(rect_t *pane)
+{
+    int             x_idx, y_idx, idx, w, h;
+    unsigned int   *pixels;
+    unsigned short *mbsval;
+    bool            succ;
+    double          x, y, x_step, y_step;
+
+    w      = pane->w *  pow(2, -(lcl_zoom - floor(lcl_zoom)));
+    h      = pane->h *  pow(2, -(lcl_zoom - floor(lcl_zoom)));
+    x      = 0;
+    y      = 0;
+    y_step = h / 200.;
+    x_step = w / 300.;
+    idx    = 0;
+
+    mbsval = malloc(w * h * 2);
+    pixels = malloc(w * h * 4);
+
+    cache_get_mbsval(mbsval, w, h);
+
+    for (y_idx = 0; y_idx < 200; y_idx++) {
+        x = 0;
+        for (x_idx = 0; x_idx < 300; x_idx++) {
+            pixels[idx] = color_lut[
+                             mbsval[(int)nearbyint(y) * w  +  (int)nearbyint(x)]
+                                        ];
+            idx++;
+            x = x + x_step;
+        }
+        y = y + y_step;
+    }
+
+    succ = cache_file_save(lcl_ctr, lcl_zoom, wavelen_start, wavelen_scale, pixels);
+    set_alert(succ ? GREEN : RED, succ ? "SAVE OKAY" : "SAVE FAILED");
+
+    free(mbsval);
+    free(pixels);
 }
 
 // - - - - - - - - -  PANE_HNDLR : HELP  - - - - - - - - - - - - - - - -

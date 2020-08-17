@@ -57,7 +57,7 @@ int mandelbrot_set(complex c);
 
 void cache_init(double pixel_size_at_zoom0);
 void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bool force);
-void cache_get_mbsval(unsigned short *mbsval);
+void cache_get_mbsval(unsigned short *mbsval, int width, int height);
 void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog);
 
 #if 0
