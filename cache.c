@@ -183,129 +183,124 @@ typedef struct {
     int          wavelen_scale;
     int          reserved[10];
     unsigned int dir_pixels[200][300];
-    struct xxx_s {
+    struct file_format_cache_s {
         cache_t cache;
         unsigned short mbsval[CACHE_HEIGHT][CACHE_WIDTH];
     } cache[0];
-} file_t;
+} file_format_t;
 
-typedef struct {
-    char filename[300];
-    bool fi_valid;
-    cache_file_info_t fi;
-} xxx_t;
+static cache_file_info_t *file_info[1000];
+static int                max_file_info;
 
-xxx_t *xxx[1000];
-int max_xxx;
-
-int compare(const void *arg1, const void *arg2)
+static int compare(const void *arg1, const void *arg2)
 {
-    xxx_t *a = *(xxx_t**)arg1;
-    xxx_t *b = *(xxx_t**)arg2;
-    return strcmp(a->filename, b->filename);
+    cache_file_info_t *a = *(cache_file_info_t**)arg1;
+    cache_file_info_t *b = *(cache_file_info_t**)arg2;
+    return strcmp(a->file_name, b->file_name);
 }
 
 int cache_file_enumerate(void)
 {
-    DIR *d;
-    struct dirent *de;
+    DIR               *d;
+    struct dirent     *de;
+    cache_file_info_t *fi;
+    char              *file_name;
+    int                i;
 
     d = opendir(".save");
     if (d == NULL) {
         FATAL("failed opendir .save, %s\n", strerror(errno));
     }
 
-    max_xxx = 0;
+    max_file_info = 0;
 
     while ((de = readdir(d)) != NULL) {
-        xxx_t *x;
-
-        char *filename = de->d_name;
-        if (strncmp(filename, "mbs_", 4) != 0 && strncmp(filename, "fav_", 4) != 0) {
+        file_name = de->d_name;
+        if (strncmp(file_name, "mbs_", 4) != 0 && strncmp(file_name, "fav_", 4) != 0) {
             continue;
         }
-        INFO("GOT %s\n", filename);
+        INFO("GOT %s\n", file_name);
 
-        x = malloc(sizeof(xxx_t));
-        memset(x,0,sizeof(xxx_t));
+        fi = calloc(1,sizeof(cache_file_info_t));
 
-        sprintf(x->filename, ".save/%s", filename);
-        free(xxx[max_xxx]);
-        xxx[max_xxx++] = x;
+        sprintf(fi->file_name, ".save/%s", file_name);
+        free(file_info[max_file_info]);
+        file_info[max_file_info++] = fi;
     }
-    qsort(xxx, max_xxx, sizeof(void*), compare);
 
-    int i;
-    for (i = 0; i < max_xxx; i++) {
-        INFO("sorted - %s\n", xxx[i]->filename);
+    qsort(file_info, max_file_info, sizeof(void*), compare);
+    for (i = 0; i < max_file_info; i++) {
+        INFO("sorted - %s\n", file_info[i]->file_name);
     }
 
     closedir(d);
 
-    return max_xxx;
+    return max_file_info;
 }
 
-void cache_file_read_directory_info(int idx, cache_file_info_t **fi)
+cache_file_info_t * cache_file_read_directory_info(int idx)
 {
-    bool err;
-    int fd, len;
-    file_t file;
-    xxx_t *x;
+    cache_file_info_t *fi = file_info[idx];
 
-    static cache_file_info_t fi_error = {.error=true};
-
-    if (idx >= max_xxx) {
-        *fi = &fi_error;
-        return;
+    if (idx >= max_file_info) {
+        INFO("idx too big\n");
+        return NULL;
     }
 
-    x = xxx[idx];
+    if (fi == NULL) {
+        INFO("fi is null\n");
+        return NULL;
+    }
 
-    if (!x->fi_valid) {
-        err = false;
+    // if no pixels yet
+    if (fi->dir_pixels[0][0] == 0) {
+        file_format_t file;
+        int           fd, len;
+        bool          err = false;
 
-        fd = open(x->filename, O_RDONLY);
+        INFO("getting pixels\n");
+
+        fd = open(fi->file_name, O_RDONLY);
         if (fd == -1) {
-            ERROR("failed open %s, %s\n", x->filename, strerror(errno));
+            ERROR("failed open %s, %s\n", fi->file_name, strerror(errno));
             err = true;
         } else {
-            len = read(fd, &file, sizeof(file_t));
-            if (len != sizeof(file_t)) {
-                ERROR("failed read %s, %s\n", x->filename, strerror(errno));
+            len = read(fd, &file, sizeof(file_format_t));
+            if (len != sizeof(file_format_t)) {
+                ERROR("failed read %s, %s\n", fi->file_name, strerror(errno));
                 err = true;
             }
             close(fd);
         }
 
-        x->fi.deleted   = false;
-        x->fi.error     = err;
-        x->fi.cached    = false;
-        x->fi.favorite  = false;
-        if (!err) {
-            memcpy(x->fi.pixels, file.dir_pixels, sizeof(x->fi.pixels));
-        } else {
-            memset(x->fi.pixels, 0, sizeof(x->fi.pixels));
+        // XXX if there is an error then just delete it
+        // xxx tbd - free and unlink
+        if (err) {
+            INFO("GOT AN ERROR\n");
+            return NULL;
         }
 
-        x->fi_valid = true;
-        INFO("x->fi_valid is true for %s\n", x->filename);
+        memcpy(fi->dir_pixels, file.dir_pixels, sizeof(fi->dir_pixels));
+        INFO("got pixels for file %s\n", fi->file_name);
     }
 
-    *fi = &x->fi;
+    return fi;   // xxx caller must check rc
 }
 
 bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
                      unsigned int * dir_pixels)
 {
-    int rc, fd, len;
+    int         rc, fd, len;
     struct stat statbuf;
-    char filename[100];
-    time_t t;
-    struct tm *tm;
+    char        filename[100];
+    time_t      t;
+    struct tm  *tm;
 
-    static file_t *file;
+    static file_format_t *file;
 
-    #define FILE_SIZE (sizeof(file_t) + sizeof(struct xxx_s))
+    #define FILE_SIZE (sizeof(file_format_t) + sizeof(struct file_format_cache_s))
+
+    // allocate file on first call
     if (file == NULL) {
         file = malloc(FILE_SIZE);
     }
@@ -327,7 +322,11 @@ bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_sc
     // construct filename from date, format: 
     // - mbs_yyyy_mm_day_hhmmss.dat OR
     // - fav_yyyy_mm_day_hhmmss.dat  (when the file is converted to a favorite
-    strcpy(filename, ".save/mbs_xxx.dat");
+    // - mbs_yyyy_mm_day_hhmmss_cc.dat OR
+    // - mbs_yyyy_mm_day_hhmmss.dat OR
+    // - fav_yyyy_mm_day_hhmmss.dat  (when the file is converted to a favorite
+    // XXX add ms
+    // XXX add _cc.dat if cache is inited
     t = time(NULL);
     tm = localtime(&t);
     sprintf(filename, ".save/mbs_%04d_%02d_%02d_%02d%02d%02d.dat",
@@ -336,10 +335,7 @@ bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_sc
     // stop the cache thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
 
-    // constuct a buffer containing:
-    // - file_hdr
-    // - directory_pixels
-    // - cache_t for the zoom level being saved
+    // construct file in buffer
     file->magic         = MAGIC_MBS_FILE;
     file->ctr           = ctr;
     file->zoom          = zoom;
@@ -351,12 +347,12 @@ bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_sc
 
     file->cache[0].cache = cache[cache_zoom];
     file->cache[0].cache.mbsval = NULL;
-    memcpy(file->cache[0].mbsval,  cache[cache_zoom].mbsval, MBSVAL_BYTES);
+    memcpy(file->cache[0].mbsval, cache[cache_zoom].mbsval, MBSVAL_BYTES);
 
     // run the cache thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
 
-    // open, write, close
+    // write the file to disk
     fd = open(filename, O_CREAT|O_EXCL|O_WRONLY, 0644);
     if (fd < 0) {
         ERROR("failed to create %s, %s\n", filename, strerror(errno));

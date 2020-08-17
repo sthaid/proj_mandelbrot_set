@@ -36,11 +36,8 @@
 //
 
 typedef struct {
-    bool deleted;
-    bool error;
-    bool cached;
-    bool favorite;
-    unsigned int pixels[200][300];
+    char file_name[300];
+    unsigned int dir_pixels[200][300];
 } cache_file_info_t;
 
 //
@@ -67,7 +64,7 @@ bool cache_read(char *file_name, complex *ctr, double *zoom, int *wavelen_start,
 #endif
 
 int cache_file_enumerate(void);
-void cache_file_read_directory_info(int idx, cache_file_info_t **fi);
+cache_file_info_t * cache_file_read_directory_info(int idx);
 bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
                      unsigned int * pixels);
 

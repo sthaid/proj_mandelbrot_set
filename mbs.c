@@ -789,28 +789,28 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // display it
-        cache_file_read_directory_info(i, &fi);
+        fi = cache_file_read_directory_info(i);
 
-        if (fi->deleted || fi->error) {
+        if (fi == NULL) {
             sdl_render_text(pane, 
                             x+300/2,   // xxx plus half char
                             y+200/2, 
                             60, 
-                            fi->deleted ? "X" : "E",
+                            "X",   // xxx err vs deleted?
                             GREEN, BLACK);
             continue;
         }
 
-        sdl_update_texture(texture, (void*)fi->pixels, 300*BYTES_PER_PIXEL);
+        sdl_update_texture(texture, (void*)fi->dir_pixels, 300*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
 
         if (selected[i]) {
             sdl_render_text(pane, x+0, y+0, 30, "X", GREEN, BLACK);
         }
-        if (fi->cached) {
+        if (false) {  //xxx  use macro on filename
             sdl_render_text(pane, x+240, y+0, 30, "C", GREEN, BLACK);
         }
-        if (fi->favorite) {
+        if (false) {  //xxx  use macro on filename
             sdl_render_text(pane, x+270, y+0, 30, "*", YELLOW, BLACK);
         }
     }
