@@ -746,7 +746,7 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
 
 static bool enum_needed = true;
 static bool selected[1000];
-static int  start=0;
+static int  y_top;
 
 static void render_hndlr_directory(pane_cx_t *pane_cx)
 {
@@ -757,7 +757,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     cache_file_info_t *fi;
     rect_t *pane = &pane_cx->pane;
 
-    //INFO("starting\n");
+    #define SDL_EVENT_SCROLL_WHEEL (SDL_EVENT_USER_DEFINED + 0)
 
     // allocate texture
     if (texture == NULL) {
@@ -778,15 +778,14 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     // - favorite  '*' upper right
     // - big X if deleted
     // - big E if something is wrong
-    for (i = start, j = 0; i < max_file; i++, j++) {
+    for (i = 0, j = 0; i < max_file; i++, j++) {
         // determine location of upper left
         x = (j % 4) * 300;
-        y = (j / 4) * 200;
-        //INFO("x,y = %d %d\n", x, y);
+        y = (j / 4) * 200 + y_top;
 
-        // break out if location is below the bottom of the pane
-        if (y >= pane->h) {
-            break;
+        // break out if location is xxx
+        if (y <= -200 || y >= pane->h) {
+            continue;
         }
 
         // display it
@@ -815,8 +814,28 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
             sdl_render_text(pane, x+270, y+0, 30, "*", YELLOW, BLACK);
         }
     }
-        
+
+    // divide the directory images
+    for (i = 1; i <= 3; i++) {
+        x = i * 300;
+        sdl_render_line(pane, x-2, 0, x-2, pane->h-1, BLACK);
+        sdl_render_line(pane, x-1, 0, x-1, pane->h-1, BLACK);
+        sdl_render_line(pane, x+0, 0, x+0, pane->h-1, BLACK);
+        sdl_render_line(pane, x+1, 0, x+1, pane->h-1, BLACK);
+    }
+    for (i = 1; i <= max_file-1; i++) {
+        y = (i / 4) * 200 + y_top;
+        if (y+1 < 0 || y-2 > pane->h-1) {
+            continue;
+        }
+        sdl_render_line(pane, 0, y-2, pane->w-1, y-2, BLACK);
+        sdl_render_line(pane, 0, y-1, pane->w-1, y-1, BLACK);
+        sdl_render_line(pane, 0, y+0, pane->w-1, y+0, BLACK);
+        sdl_render_line(pane, 0, y+1, pane->w-1, y+1, BLACK);
+    }
+
     // register for events
+    sdl_register_event(pane, pane, SDL_EVENT_SCROLL_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
 }
 
 static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
@@ -827,6 +846,13 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
     case SDL_EVENT_KEY_ESC: case 'd':
         display_select = DISPLAY_SELECT_MBS;
         enum_needed = true;
+        break;
+    case SDL_EVENT_SCROLL_WHEEL:
+        if (event->mouse_wheel.delta_y > 0) {
+            y_top += 20;
+        } else if (event->mouse_wheel.delta_y < 0) {
+            y_top -= 20;
+        }
         break;
     case 'q':
         rc = PANE_HANDLER_RET_PANE_TERMINATE;
