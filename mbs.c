@@ -9,8 +9,8 @@
 #define DEFAULT_WIN_WIDTH         1200
 #define DEFAULT_WIN_HEIGHT        800
 
-//xxx #define INITIAL_CTR               (-0.75 + 0.0*I)
-#define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
+#define INITIAL_CTR               (-0.75 + 0.0*I)
+//xxx #define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
 
 #define ZOOM_STEP                 .1   // must be a submultiple of 1
 
@@ -868,13 +868,37 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         display_select = DISPLAY_SELECT_MBS;
         init_needed = true;
         break;
+
     case SDL_EVENT_SCROLL_WHEEL:
+    case SDL_EVENT_KEY_PGUP:
+    case SDL_EVENT_KEY_PGDN:
+    case SDL_EVENT_KEY_UP_ARROW:
+    case SDL_EVENT_KEY_DOWN_ARROW:
+    case SDL_EVENT_KEY_HOME:
+    case SDL_EVENT_KEY_END:
         // xxx limit scrollint to top and bottom;  also use PgUp Pgdn
-        if (event->mouse_wheel.delta_y > 0) {
+        if (event->event_id == SDL_EVENT_SCROLL_WHEEL) {
+            if (event->mouse_wheel.delta_y > 0) {
+                y_top += 20;
+            } else if (event->mouse_wheel.delta_y < 0) {
+                y_top -= 20;
+            }
+        } else if (event->event_id == SDL_EVENT_KEY_PGUP) {
+            y_top += 600;
+        } else if (event->event_id == SDL_EVENT_KEY_PGDN) {
+            y_top -= 600;
+        } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
             y_top += 20;
-        } else if (event->mouse_wheel.delta_y < 0) {
+        } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
             y_top -= 20;
+        } else if (event->event_id == SDL_EVENT_KEY_HOME) {
+            y_top = 0;
+        } else if (event->event_id == SDL_EVENT_KEY_END) {
+            y_top = -((max_file - 1) / 4 + 1) * 200 + 600;
+        } else {
+            FATAL("unexpected event_id 0x%x\n", event->event_id);
         }
+
         //if (y_top < 0) y_top = 0;
         //if (y_top > (max_file-1)/4*200) y_top = (max_file-1)/4*200;
         INFO("%d\n", y_top);
@@ -882,6 +906,7 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         if (y_top < xxx) y_top = xxx;
         if (y_top > 0) y_top = 0;
         break;
+
     case SDL_EVENT_CHOICE...SDL_EVENT_CHOICE+1000: {
         int idx = event->event_id - SDL_EVENT_CHOICE;
         INFO("CHOICE %d\n", idx);
@@ -890,6 +915,7 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         display_select = DISPLAY_SELECT_MBS;
         init_needed = true;
         break; }
+
     case SDL_EVENT_SELECT...SDL_EVENT_SELECT+1000: {
         int idx = event->event_id - SDL_EVENT_SELECT;
         selected[idx] = !selected[idx];
@@ -901,6 +927,7 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
     case 'S':
         memset(selected, 0, sizeof(selected));  // xxx max_file
         break;
+
     case SDL_EVENT_KEY_DELETE: {
         int idx;
         INFO("GOT DEL\n");
