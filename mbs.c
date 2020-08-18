@@ -747,21 +747,22 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
 
 // xxx try to use pane->w instead of win_width
 
-static bool enum_needed = true;
-//static bool selected[1000];
+static bool init_needed = true;
+static bool selected[1000];
 static int  y_top;
+static int  max_file;
 
 static void render_hndlr_directory(pane_cx_t *pane_cx)
 {
     static texture_t texture;
-    static int       max_file;
 
-    int i, x, y;
+    int idx, x, y;
     cache_file_info_t *fi;
     rect_t *pane = &pane_cx->pane;
 
     #define SDL_EVENT_SCROLL_WHEEL (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_CHOICE       (SDL_EVENT_USER_DEFINED + 10)
+    #define SDL_EVENT_SELECT       (SDL_EVENT_USER_DEFINED + 1100)
 
     // allocate texture
     if (texture == NULL) {
@@ -769,11 +770,12 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     }
 
     // enumerate files if needed
-    if (enum_needed) {
+    if (init_needed) {
         max_file = cache_file_enumerate();
-        enum_needed = false;  // xxx rename to init_needed
+        init_needed = false;
         y_top = 0;
-        //INFO("max_file = %d\n", max_file);
+        memset(selected, 0, sizeof(selected));
+        INFO("max_file = %d\n", max_file);
     }
 
     // display the directory
@@ -783,10 +785,10 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     // - favorite  '*' upper right
     // - big X if deleted
     // - big E if something is wrong
-    for (i = 0; i < max_file; i++) {
+    for (idx = 0; idx < max_file; idx++) {
         // determine location of upper left
-        x = (i % 4) * 300;  // xxx the 4 could be a func of win_width or pane->w
-        y = (i / 4) * 200 + y_top;
+        x = (idx % 4) * 300;  // xxx the 4 could be a func of win_width or pane->w
+        y = (idx / 4) * 200 + y_top;
 
         // break out if location is xxx
         if (y <= -200 || y >= pane->h) {
@@ -794,44 +796,37 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // display it
-        fi = cache_file_read_dir_info(i);
-
-#if 0
-        if (fi == NULL) {
-            sdl_render_text(pane, 
-                            x+300/2,   // xxx plus half char
-                            y+200/2, 
-                            60, 
-                            "X",   // xxx err vs deleted?
-                            GREEN, BLACK);
-            continue;
-        }
-#endif
-
+        fi = cache_file_read_dir_info(idx);
         sdl_update_texture(texture, (void*)fi->dir_pixels, 300*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
 
-#if 0
-        if (selected[i]) {
-            sdl_render_text(pane, x+0, y+0, 30, "X", GREEN, BLACK);
+        if (selected[idx]) {
+            rect_t loc = {x+5,y+5,15,15};
+            sdl_render_fill_rect(pane, &loc, RED);
         }
-        if (false) {  //xxx  use macro on filename
-            sdl_render_text(pane, x+240, y+0, 30, "C", GREEN, BLACK);
-        }
-        if (false) {  //xxx  use macro on filename
-            sdl_render_text(pane, x+270, y+0, 30, "*", YELLOW, BLACK);
-        }
-#endif
+
+        char s[300], *p, *p1;
+        strcpy(s, fi->file_name);
+        p = basename(s);
+        p1 = strstr(s, ".dat");
+        if (p1) *p1 = '\0';
+        int xxx = 300/2 - COL2X(strlen(p),20)/2;
+        sdl_render_printf(pane, x+xxx, y+0, 20, WHITE, BLACK, "%s", p);
 
         rect_t loc = {x,y,300,200};
         sdl_register_event(pane, &loc, 
-              SDL_EVENT_CHOICE + i,
+              SDL_EVENT_CHOICE + idx,
               SDL_EVENT_TYPE_MOUSE_CLICK,
+              pane_cx);
+        sdl_register_event(pane, &loc, 
+              SDL_EVENT_SELECT + idx,
+              SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK,
               pane_cx);
 
     }
 
     // divide the directory images
+    int i;
     for (i = 1; i <= 3; i++) {
         x = i * 300;
         sdl_render_line(pane, x-2, 0, x-2, pane->h-1, BLACK);
@@ -856,27 +851,66 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
 
 static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 {
-    int rc = PANE_HANDLER_RET_NO_ACTION;
+    //int rc = PANE_HANDLER_RET_NO_ACTION;
+    int rc = PANE_HANDLER_RET_DISPLAY_REDRAW;
 
+// controls
+// - esc or d       return            okay
+// - wheel          scroll            okay
+// - pgup/dn        scroll 
+// - left click     choice            okay
+// - q              exit pgm            okay
+// - right clk      sel / desel         okay
+// - s S            select all            okay
+// - del            delete selected files   okay
     switch (event->event_id) {
     case SDL_EVENT_KEY_ESC: case 'd':
         display_select = DISPLAY_SELECT_MBS;
-        enum_needed = true;
+        init_needed = true;
         break;
     case SDL_EVENT_SCROLL_WHEEL:
+        // xxx limit scrollint to top and bottom;  also use PgUp Pgdn
         if (event->mouse_wheel.delta_y > 0) {
             y_top += 20;
         } else if (event->mouse_wheel.delta_y < 0) {
             y_top -= 20;
         }
+        //if (y_top < 0) y_top = 0;
+        //if (y_top > (max_file-1)/4*200) y_top = (max_file-1)/4*200;
+        INFO("%d\n", y_top);
+        int xxx = -((max_file - 1) / 4 + 1) * 200 + 600;
+        if (y_top < xxx) y_top = xxx;
+        if (y_top > 0) y_top = 0;
         break;
     case SDL_EVENT_CHOICE...SDL_EVENT_CHOICE+1000: {
-        int choice = event->event_id - SDL_EVENT_CHOICE;
-        INFO("CHOICE %d\n", choice);
-        cache_file_read(choice, &lcl_ctr, &lcl_zoom, &wavelen_start, &wavelen_scale);
+        int idx = event->event_id - SDL_EVENT_CHOICE;
+        INFO("CHOICE %d\n", idx);
+        cache_file_read(idx, &lcl_ctr, &lcl_zoom, &wavelen_start, &wavelen_scale);
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
         display_select = DISPLAY_SELECT_MBS;
-        enum_needed = true;
+        init_needed = true;
+        break; }
+    case SDL_EVENT_SELECT...SDL_EVENT_SELECT+1000: {
+        int idx = event->event_id - SDL_EVENT_SELECT;
+        selected[idx] = !selected[idx];
+        INFO("SELECT %d  is now %d\n", idx, selected[idx]);
+        break; }
+    case 's':
+        memset(selected, 1, sizeof(selected));  // xxx max_file
+        break;
+    case 'S':
+        memset(selected, 0, sizeof(selected));  // xxx max_file
+        break;
+    case SDL_EVENT_KEY_DELETE: {
+        int idx;
+        INFO("GOT DEL\n");
+        for (idx = 0; idx < max_file; idx++) {
+            if (selected[idx]) {
+                INFO(" -- deleting idx=%d\n", idx);
+                cache_file_delete(idx);
+            }
+        }
+        init_needed = true;
         break; }
     case 'q':
         rc = PANE_HANDLER_RET_PANE_TERMINATE;
@@ -885,3 +919,23 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 
     return rc;
 }
+
+#if 0
+        if (fi == NULL) {
+            sdl_render_text(pane, 
+                            x+300/2,   // xxx plus half char
+                            y+200/2, 
+                            60, 
+                            "X",   // xxx err vs deleted?
+                            GREEN, BLACK);
+            continue;
+        }
+#endif
+#if 0
+        if (false) {  //xxx  use macro on filename
+            sdl_render_text(pane, x+240, y+0, 30, "C", GREEN, BLACK);
+        }
+        if (false) {  //xxx  use macro on filename
+            sdl_render_text(pane, x+270, y+0, 30, "*", YELLOW, BLACK);
+        }
+#endif

@@ -83,6 +83,7 @@ typedef void * texture_t;
 //   . if ctrl is active then SDL_EVENT_KEY_CTRL is added to the event_id value
 //   . if alt is active then SDL_EVENT_KEY_ALT is added to the event_id value
 #define SDL_EVENT_KEY_ESC                0x1b
+#define SDL_EVENT_KEY_DELETE             0x7f
 #define SDL_EVENT_KEY_INSERT             0x101
 #define SDL_EVENT_KEY_HOME               0x102
 #define SDL_EVENT_KEY_END                0x103

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <libgen.h>
 #include <string.h>
 #include <math.h>
 #include <pthread.h>
@@ -37,7 +38,7 @@
 
 typedef struct {
     char file_name[300];  // xxx do we need the name?,  maybe for fav vs mbs
-    int file_num;         // xxx already part of the name
+    //int file_num;         // xxx already part of the name
     unsigned int dir_pixels[200][300];
 } cache_file_info_t;
 
@@ -64,5 +65,6 @@ bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_sc
                      unsigned int * pixels);
 bool cache_file_read(int idx, complex *ctr, double *zoom, 
                      int *wavelen_start, int *wavelen_scale);
+void cache_file_delete(int idx);
 
 #endif

@@ -247,10 +247,12 @@ int cache_file_enumerate(void)
         }
 
         INFO("GOT %s %d\n", file_name, file_num);
+        if (file_num > last_file_num) {
+            last_file_num = file_num;
+        }
 
         fi = calloc(1,sizeof(cache_file_info_t));
         sprintf(fi->file_name, ".mbs_save/%s", file_name);
-        fi->file_num = file_num;
 
         free(file_info[max_file_info]);
         file_info[max_file_info++] = fi;
@@ -260,9 +262,6 @@ int cache_file_enumerate(void)
 
     for (i = 0; i < max_file_info; i++) {
         INFO("sorted - %s\n", file_info[i]->file_name);
-        if (file_info[i]->file_num > last_file_num) {
-            last_file_num = file_info[i]->file_num;
-        }
     }
 
     INFO("max_file_info=%d last_file_num=%d\n", max_file_info, last_file_num);
@@ -284,6 +283,12 @@ cache_file_info_t * cache_file_read_dir_info(int idx)
     fi = file_info[idx];
     if (fi == NULL) {
         FATAL("file_info[%d] is null, max_file_info=%d\n", idx, max_file_info);
+    }
+
+    if (strncmp(fi->file_name, ".mbs_save/mbs", 13) != 0 &&
+        strncmp(fi->file_name, ".mbs_save/fav", 13) != 0)
+    {
+        return fi;
     }
 
     // if no pixels yet
@@ -310,6 +315,7 @@ cache_file_info_t * cache_file_read_dir_info(int idx)
         if (err) {
             ERROR("deleting %s due to error\n", fi->file_name);
             unlink(fi->file_name);
+            // xxx update the filename too
             break;
         }
 
@@ -467,6 +473,31 @@ error:
     }
     return false;
 }
+
+void cache_file_delete(int idx)
+{
+    cache_file_info_t *fi;
+
+    // xxx needs check of idx:w
+
+    
+    fi = file_info[idx];
+
+// XXX filename should not be pathname
+    INFO("CALLED FOR  %s\n", fi->file_name);
+    if (strncmp(fi->file_name, ".mbs_save/mbs", 13) != 0 &&
+        strncmp(fi->file_name, ".mbs_save/fav", 13) != 0)
+    {
+        return;
+    }
+
+    INFO("UNLINKING %s\n", fi->file_name);
+    unlink(fi->file_name);
+
+    strcpy(fi->file_name, "deleted");
+    memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
+}
+
 
 #if 0
     int              fd=1, len, z, rc;
