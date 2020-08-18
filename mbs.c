@@ -125,8 +125,8 @@ int main(int argc, char **argv)
 // xxx some of these should be local
 static texture_t     texture;
 static unsigned int *pixels;
-static complex       lcl_ctr;  // xxx rename
-static double        lcl_zoom;  // xxx rename
+static complex       lcl_ctr;  // xxx rename  XXX could make these global
+static double        lcl_zoom;  // xxx rename  XXX could make these global
 static int           auto_zoom;
 static int           auto_zoom_last;
 static unsigned long last_update_time_us;
@@ -215,6 +215,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     if (request == PANE_HANDLER_REQ_EVENT) {
         int rc;
 
+// XXX some events should be common, such as q, f, maybe others
         switch (display_select) {
         case DISPLAY_SELECT_MBS:
             rc = event_hndlr_mbs(pane_cx, event);
@@ -744,8 +745,10 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
 
 // - - - - - - - - -  PANE_HNDLR : DIRECTORY  - - - - - - - - - - - - -
 
+// xxx try to use pane->w instead of win_width
+
 static bool enum_needed = true;
-static bool selected[1000];
+//static bool selected[1000];
 static int  y_top;
 
 static void render_hndlr_directory(pane_cx_t *pane_cx)
@@ -753,11 +756,12 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     static texture_t texture;
     static int       max_file;
 
-    int i, j, x, y;
+    int i, x, y;
     cache_file_info_t *fi;
     rect_t *pane = &pane_cx->pane;
 
     #define SDL_EVENT_SCROLL_WHEEL (SDL_EVENT_USER_DEFINED + 0)
+    #define SDL_EVENT_CHOICE       (SDL_EVENT_USER_DEFINED + 10)
 
     // allocate texture
     if (texture == NULL) {
@@ -767,7 +771,8 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     // enumerate files if needed
     if (enum_needed) {
         max_file = cache_file_enumerate();
-        enum_needed = false;
+        enum_needed = false;  // xxx rename to init_needed
+        y_top = 0;
         //INFO("max_file = %d\n", max_file);
     }
 
@@ -778,10 +783,10 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     // - favorite  '*' upper right
     // - big X if deleted
     // - big E if something is wrong
-    for (i = 0, j = 0; i < max_file; i++, j++) {
+    for (i = 0; i < max_file; i++) {
         // determine location of upper left
-        x = (j % 4) * 300;
-        y = (j / 4) * 200 + y_top;
+        x = (i % 4) * 300;  // xxx the 4 could be a func of win_width or pane->w
+        y = (i / 4) * 200 + y_top;
 
         // break out if location is xxx
         if (y <= -200 || y >= pane->h) {
@@ -789,8 +794,9 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // display it
-        fi = cache_file_read_directory_info(i);
+        fi = cache_file_read_dir_info(i);
 
+#if 0
         if (fi == NULL) {
             sdl_render_text(pane, 
                             x+300/2,   // xxx plus half char
@@ -800,10 +806,12 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
                             GREEN, BLACK);
             continue;
         }
+#endif
 
         sdl_update_texture(texture, (void*)fi->dir_pixels, 300*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
 
+#if 0
         if (selected[i]) {
             sdl_render_text(pane, x+0, y+0, 30, "X", GREEN, BLACK);
         }
@@ -813,6 +821,14 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         if (false) {  //xxx  use macro on filename
             sdl_render_text(pane, x+270, y+0, 30, "*", YELLOW, BLACK);
         }
+#endif
+
+        rect_t loc = {x,y,300,200};
+        sdl_register_event(pane, &loc, 
+              SDL_EVENT_CHOICE + i,
+              SDL_EVENT_TYPE_MOUSE_CLICK,
+              pane_cx);
+
     }
 
     // divide the directory images
@@ -854,6 +870,14 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
             y_top -= 20;
         }
         break;
+    case SDL_EVENT_CHOICE...SDL_EVENT_CHOICE+1000: {
+        int choice = event->event_id - SDL_EVENT_CHOICE;
+        INFO("CHOICE %d\n", choice);
+        cache_file_read(choice, &lcl_ctr, &lcl_zoom, &wavelen_start, &wavelen_scale);
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        display_select = DISPLAY_SELECT_MBS;
+        enum_needed = true;
+        break; }
     case 'q':
         rc = PANE_HANDLER_RET_PANE_TERMINATE;
         break;

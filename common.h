@@ -36,7 +36,8 @@
 //
 
 typedef struct {
-    char file_name[300];
+    char file_name[300];  // xxx do we need the name?,  maybe for fav vs mbs
+    int file_num;         // xxx already part of the name
     unsigned int dir_pixels[200][300];
 } cache_file_info_t;
 
@@ -57,15 +58,11 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
 void cache_get_mbsval(unsigned short *mbsval, int width, int height);
 void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog);
 
-#if 0
-bool cache_write(char *file_name, complex ctr, double zoom, int wavelen_start, int wavelen_scale,
-                 bool require_cache_thread_finished);
-bool cache_read(char *file_name, complex *ctr, double *zoom, int *wavelen_start, int *wavelen_scale);
-#endif
-
 int cache_file_enumerate(void);
-cache_file_info_t * cache_file_read_directory_info(int idx);
+cache_file_info_t * cache_file_read_dir_info(int idx);
 bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
                      unsigned int * pixels);
+bool cache_file_read(int idx, complex *ctr, double *zoom, 
+                     int *wavelen_start, int *wavelen_scale);
 
 #endif
