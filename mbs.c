@@ -315,9 +315,10 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     unsigned long  update_intvl_ms;
     rect_t       * pane = &pane_cx->pane;
 
-    static texture_t     texture;
-    static unsigned int *pixels;
-    static unsigned long last_update_time_us;
+    static texture_t       texture;
+    static unsigned int   *pixels;
+    static unsigned short *mbsval;
+    static unsigned long   last_update_time_us;
 
     #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_PAN      (SDL_EVENT_USER_DEFINED + 1)
@@ -332,19 +333,20 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
 
     // if the texture hasn't been allocated yet, or the size of the
     // texture doesn't match the size of the pane then
-    // re-allocate the texture and the pixels array
+    // re-allocate the texture, pixels, and mbsval
     int new_texture_width, new_texture_height;
     if ((texture == NULL) ||
         ((sdl_query_texture(texture, &new_texture_width, &new_texture_height), true) &&
          (new_texture_width != pane->w || new_texture_height != pane->h)))
     {
-        DEBUG("ALLOCATING TEXTURE AND PIXELS w=%d h=%d\n", pane->w, pane->h);
+        DEBUG("allocating texture,pixels,mbsval w=%d h=%d\n", pane->w, pane->h);
         sdl_destroy_texture(texture);
         free(pixels);
+        free(mbsval);
 
         texture = sdl_create_texture(pane->w, pane->h);
         pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
-        // XXX mbsval can be malloced and freed here too
+        mbsval = malloc(pane->w*pane->h*2);
     }
 
     // if auto_zoom is enabled then increment or decrement the zoom until limit is reached
@@ -364,7 +366,6 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
 
     // get the cached mandelbrot set values; and
     // convert them to pixel color values
-    unsigned short * mbsval = malloc(win_height*win_width*2);
     cache_get_mbsval(mbsval, win_width, win_height);
     for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
         for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
@@ -372,7 +373,6 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
             idx++;
         }
     }
-    free(mbsval);
 
     // copy the pixels to the texture
     sdl_update_texture(texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
