@@ -1,3 +1,9 @@
+// xxx try to use pane->w instead of win_width
+// xxx add support for fully cache the selected items
+// xxx use zoom and zoom_fraction
+// xxx use defines for autozoom
+// xxx use defines for the 300x200 dir image size
+
 #include <common.h>
 
 #include <util_sdl.h>
@@ -10,7 +16,6 @@
 #define DEFAULT_WIN_HEIGHT        800
 
 #define INITIAL_CTR               (-0.75 + 0.0*I)
-//xxx #define INITIAL_CTR      (0.27808593632993183764 -0.47566405952660278933*I)
 
 #define ZOOM_STEP                 .1   // must be a submultiple of 1
 
@@ -38,26 +43,28 @@ static double  pixel_size_at_zoom0;
 
 //
 // prototypes
-// XXX move all protos and vars up here
 //
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event);
-static double zoom_step(double z, bool dir_is_incr);
-static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *color_lut);
 static void set_alert(int color, char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
 static void display_alert(rect_t *pane);
+
+static void init_hndlr_mbs(void);
+static void render_hndlr_mbs(pane_cx_t *pane_cx);
+static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event);
+static double zoom_step(double z, bool dir_is_incr);
+static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *color_lut);
 static void display_info_proc(rect_t *pane, double lcl_zoom, int wavelen_start, int wavelen_scale,
                          unsigned long update_intvl_ms);
 static void save_file(rect_t *pane);
 
-static void render_hndlr_mbs(pane_cx_t *pane_cx);
 static void render_hndlr_help(pane_cx_t *pane_cx);
-static void render_hndlr_color_lut(pane_cx_t *pane_cx);
-static void render_hndlr_directory(pane_cx_t *pane_cx);
-
-static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event);
 static int event_hndlr_help(pane_cx_t *pane_cx, sdl_event_t *event);
+
+static void render_hndlr_color_lut(pane_cx_t *pane_cx);
 static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event);
+
+static void render_hndlr_directory(pane_cx_t *pane_cx);
 static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event);
 
 // -----------------  MAIN  -------------------------------------------------
@@ -122,27 +129,16 @@ int main(int argc, char **argv)
 
 // -----------------  PANE_HNDLR  ---------------------------------------
 
-// xxx some of these should be local
-static texture_t     texture;
-static unsigned int *pixels;
-static complex       lcl_ctr;  // xxx rename  XXX could make these global
-static double        lcl_zoom;  // xxx rename  XXX could make these global
-static int           auto_zoom;
-static int           auto_zoom_last;
-static unsigned long last_update_time_us;
-static bool          full_screen;
-static bool          display_info;
-static int           display_select;
-static bool          force;
-static int           wavelen_start;
-static int           wavelen_scale;
-static unsigned int  color_lut[65536];
-
-struct {
+typedef struct {
     char          str[200];
     int           color;
     unsigned long expire_us;
-} alert;
+} alert_t;
+
+static bool    full_screen          = false;
+static int     display_select       = DISPLAY_SELECT_MBS;
+static int     display_select_count = 0;
+static alert_t alert                = {.expire_us = 0};
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
 {
@@ -154,23 +150,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         INFO("PANE x,y,w,h  %d %d %d %d\n", pane->x, pane->y, pane->w, pane->h);
-
-        texture             = NULL;
-        pixels              = NULL;
-        lcl_ctr             = INITIAL_CTR;
-        lcl_zoom            = 0;
-        auto_zoom           = 0;
-        auto_zoom_last      = 1;    //xxx needs defines
-        last_update_time_us = microsec_timer();
-        full_screen         = false;
-        display_info        = true;
-        display_select      = DISPLAY_SELECT_MBS;
-        force               = false;
-        wavelen_start       = WAVELEN_START_DEFAULT;
-        wavelen_scale       = WAVELEN_SCALE_DEFAULT;
-
-        init_color_lut(wavelen_start, wavelen_scale, color_lut);
-
+        init_hndlr_mbs();
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -190,6 +170,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             win_height = new_win_height;
         }
 
+        // call the selected render_hndlr
         switch (display_select) {
         case DISPLAY_SELECT_MBS:
             render_hndlr_mbs(pane_cx);
@@ -205,6 +186,9 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             break;
         }
 
+        // display alert messages in the center of the pane
+        display_alert(pane);
+
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -213,21 +197,49 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // -----------------------
 
     if (request == PANE_HANDLER_REQ_EVENT) {
-        int rc;
+        int rc = PANE_HANDLER_RET_NO_ACTION;
 
-// XXX some events should be common, such as q, f, maybe others
-        switch (display_select) {
-        case DISPLAY_SELECT_MBS:
-            rc = event_hndlr_mbs(pane_cx, event);
+        switch (event->event_id) {
+        case 'f':  // full screen
+            full_screen = !full_screen;
+            DEBUG("set full_screen to %d\n", full_screen);
+            sdl_full_screen(full_screen);
             break;
-        case DISPLAY_SELECT_HELP:
-            rc = event_hndlr_help(pane_cx, event);
+        case 'q':  // quit
+            rc = PANE_HANDLER_RET_PANE_TERMINATE;
             break;
-        case DISPLAY_SELECT_COLOR_LUT:
-            rc = event_hndlr_color_lut(pane_cx, event);
+        case 'h':  // display help
+            display_select = (display_select == DISPLAY_SELECT_HELP
+                              ? DISPLAY_SELECT_MBS : DISPLAY_SELECT_HELP);
+            display_select_count++;
             break;
-        case DISPLAY_SELECT_DIRECTORY:
-            rc = event_hndlr_directory(pane_cx, event);
+        case 'c':  // display color lut
+            display_select = (display_select == DISPLAY_SELECT_COLOR_LUT
+                              ? DISPLAY_SELECT_MBS : DISPLAY_SELECT_COLOR_LUT);
+            display_select_count++;
+            break;
+        case 'd':  // display directory
+            display_select = (display_select == DISPLAY_SELECT_DIRECTORY
+                              ? DISPLAY_SELECT_MBS : DISPLAY_SELECT_DIRECTORY);
+            display_select_count++;
+            break;
+        default:
+            // it is not a common event, so
+            // call the selected event_hndlr
+            switch (display_select) {
+            case DISPLAY_SELECT_MBS:
+                rc = event_hndlr_mbs(pane_cx, event);
+                break;
+            case DISPLAY_SELECT_HELP:
+                rc = event_hndlr_help(pane_cx, event);
+                break;
+            case DISPLAY_SELECT_COLOR_LUT:
+                rc = event_hndlr_color_lut(pane_cx, event);
+                break;
+            case DISPLAY_SELECT_DIRECTORY:
+                rc = event_hndlr_directory(pane_cx, event);
+                break;
+            }
             break;
         }
 
@@ -239,8 +251,6 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ---------------------------
 
     if (request == PANE_HANDLER_REQ_TERMINATE) {
-        sdl_destroy_texture(texture);  // xxx maybe just rely on pgm exit
-        free(pixels);
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -249,7 +259,48 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     return PANE_HANDLER_RET_NO_ACTION;
 }
 
+static void set_alert(int color, char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(alert.str, sizeof(alert.str), fmt, ap);
+    va_end(ap);
+
+    alert.color = color;
+    alert.expire_us = microsec_timer() + 2000000;
+}
+
+static void display_alert(rect_t *pane)
+{
+    static const int alert_font_ptsize = 30;
+    int x, y;
+
+    if (microsec_timer() > alert.expire_us) {
+        return;
+    }
+
+    x = pane->w / 2 - COL2X(strlen(alert.str), alert_font_ptsize) / 2;
+    y = pane->h / 2 - ROW2Y(1,alert_font_ptsize) / 2;
+    sdl_render_printf(pane, x, y, alert_font_ptsize, alert.color, BLACK, "%s", alert.str);
+}
+
 // - - - - - - - - -  PANE_HNDLR : MBS   - - - - - - - - - - - - - - - -
+
+static int          wavelen_start                = WAVELEN_START_DEFAULT;
+static int          wavelen_scale                = WAVELEN_SCALE_DEFAULT;
+static int          auto_zoom                    = 0;
+static int          auto_zoom_last               = 1;            //xxx needs defines
+static complex      lcl_ctr                      = INITIAL_CTR;  // xxx rename 
+static double       lcl_zoom                     = 0;            // xxx rename
+static bool         display_info                 = true;
+static bool         debug_force_cache_thread_run = false;
+static unsigned int color_lut[65536];
+
+static void init_hndlr_mbs(void)
+{
+    init_color_lut(wavelen_start, wavelen_scale, color_lut);
+}
 
 static void render_hndlr_mbs(pane_cx_t *pane_cx)
 {
@@ -258,12 +309,19 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     unsigned long  update_intvl_ms;
     rect_t       * pane = &pane_cx->pane;
 
+    static texture_t     texture;
+    static unsigned int *pixels;
+    static unsigned long last_update_time_us;
+
     #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_PAN      (SDL_EVENT_USER_DEFINED + 1)
     #define SDL_EVENT_ZOOM     (SDL_EVENT_USER_DEFINED + 2)
 
-    // debug  xxx comment
-    update_intvl_ms = (time_now_us - last_update_time_us) / 1000;
+    // determine the display update interval, 
+    // which may be displayed in the info area at top left
+    update_intvl_ms = (last_update_time_us != 0
+                       ? (time_now_us - last_update_time_us) / 1000
+                       : 0);
     last_update_time_us = time_now_us;
 
     // if the texture hasn't been allocated yet, or the size of the
@@ -276,29 +334,27 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     {
         DEBUG("ALLOCATING TEXTURE AND PIXELS w=%d h=%d\n", pane->w, pane->h);
         sdl_destroy_texture(texture);
-        free(pixels);  // xxx just malloc pixels when needed
+        free(pixels);
+
         texture = sdl_create_texture(pane->w, pane->h);
         pixels = malloc(pane->w*pane->h*BYTES_PER_PIXEL);
+        // XXX mbsval can be malloced and freed here too
     }
 
-    // xxx
+    // if auto_zoom is enabled then increment or decrement the zoom until limit is reached
     if (auto_zoom != 0) {
         lcl_zoom = zoom_step(lcl_zoom, auto_zoom == 1);
         if (lcl_zoom == 0) {
             auto_zoom = 0;
         }
-        if (lcl_zoom == LAST_ZOOM) { //xxx is this exact, probably because of zoom_step
+        if (lcl_zoom == LAST_ZOOM) {
             auto_zoom = 0;
         }
     }
 
     // inform mandelbrot set cache of the current ctr and zoom
-    if (force) {
-        INFO("debug force cache_thread to run\n");
-    }
-// XXX use pane->w instead of win_width
-    cache_param_change(lcl_ctr, floor(lcl_zoom), win_width, win_height, force);
-    force = false;
+    cache_param_change(lcl_ctr, floor(lcl_zoom), win_width, win_height, debug_force_cache_thread_run);
+    debug_force_cache_thread_run = false;
 
     // get the cached mandelbrot set values; and
     // convert them to pixel color values
@@ -312,28 +368,25 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     }
     free(mbsval);
 
-    // copy the pixels to the texture and render the texture
+    // copy the pixels to the texture
     sdl_update_texture(texture, (void*)pixels, pane->w*BYTES_PER_PIXEL);
 
-    // xxx
-    rect_t dst = {0,0,pane->w,pane->h};
+    // xxx comments
     rect_t src;
-    //if changed then do prints
     static double lcl_zoom_last;
     bool do_print = lcl_zoom != lcl_zoom_last;
     lcl_zoom_last = lcl_zoom;
     do_print = false; //xxx
-
     double xxx = pow(2, -(lcl_zoom - floor(lcl_zoom)));
-
     src.w = pane->w * xxx;
     src.h = pane->h * xxx;
     src.x = (pane->w - src.w) / 2;
     src.y = (pane->h - src.h) / 2;
-
     if (do_print) INFO("xxx = %.25lf  xywh = %d %d %d %d\n", 
                         xxx, src.x, src.y, src.w, src.h);
 
+    // render the src area of the texture to the entire pane
+    rect_t dst = {0,0,pane->w,pane->h};
     sdl_render_scaled_texture_ex(pane, &src, &dst, texture);
 
     // display info in upper left corner
@@ -344,9 +397,6 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
                           wavelen_scale,
                           update_intvl_ms);
     }
-
-    // display alert messages in the center of the pane
-    display_alert(pane);
 
     // when debug_enabled display a squae in the center of the pane;
     // the purpose is to be able to check that the screen's pixels are square
@@ -371,15 +421,6 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
     switch (event->event_id) {
 
     // --- GENERAL ---
-    case 'h':
-        display_select = DISPLAY_SELECT_HELP;
-        break;
-    case 'c':
-        display_select = DISPLAY_SELECT_COLOR_LUT;
-        break;
-    case 'd':
-        display_select = DISPLAY_SELECT_DIRECTORY;
-        break;
     case 'r':
         lcl_ctr  = INITIAL_CTR;
         lcl_zoom = 0;
@@ -395,24 +436,14 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
     case 's': {
         save_file(pane);
         break; }
-    case 'q':
-        rc = PANE_HANDLER_RET_PANE_TERMINATE;
-        break;
 
     // --- DEBUG ---
     case SDL_EVENT_KEY_F(1):
         debug_enabled = !debug_enabled;
         break;
     case SDL_EVENT_KEY_F(2):
-        force = true;
+        debug_force_cache_thread_run = true;
         break;
-
-    // --- FULL SCREEN ---
-    case 'f': {
-        full_screen = !full_screen;
-        DEBUG("set full_screen to %d\n", full_screen);
-        sdl_full_screen(full_screen);
-        break; }
 
     // --- COLOR CONTROLS ---
     case SDL_EVENT_KEY_UP_ARROW: case SDL_EVENT_KEY_DOWN_ARROW:
@@ -540,32 +571,6 @@ static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *c
     }
 }
 
-static void set_alert(int color, char *fmt, ...)
-{
-    va_list ap;
-
-    va_start(ap, fmt);
-    vsnprintf(alert.str, sizeof(alert.str), fmt, ap);
-    va_end(ap);
-
-    alert.color = color;
-    alert.expire_us = microsec_timer() + 2000000;
-}
-
-static void display_alert(rect_t *pane)
-{
-    static int alert_font_ptsize = 30;
-    int x, y;
-
-    if (microsec_timer() > alert.expire_us) {
-        return;
-    }
-
-    x = pane->w / 2 - COL2X(strlen(alert.str), alert_font_ptsize) / 2;
-    y = pane->h / 2 - ROW2Y(1,alert_font_ptsize) / 2;
-    sdl_render_printf(pane, x, y, alert_font_ptsize, alert.color, BLACK, "%s", alert.str);
-}
-
 static void display_info_proc(rect_t *pane,
                               double lcl_zoom,
                               int wavelen_start,
@@ -577,7 +582,6 @@ static void display_info_proc(rect_t *pane,
     int  n=0, max_len=0, i;
     int  phase, percent_complete, zoom_lvl_inprog;
 
-// XXX pane->w instead of win_width
     // print info to line[] array
     sprintf(line[n++], "Window: %d %d", win_width, win_height);
     sprintf(line[n++], "Zoom:   %0.2f", lcl_zoom);
@@ -671,16 +675,6 @@ static void render_hndlr_help(pane_cx_t *pane_cx)
 static int event_hndlr_help(pane_cx_t *pane_cx, sdl_event_t *event)
 {
     int rc = PANE_HANDLER_RET_NO_ACTION;
-
-    switch (event->event_id) {
-    case SDL_EVENT_KEY_ESC: case 'h':
-        display_select = DISPLAY_SELECT_MBS;
-        break;
-    case 'q':
-        rc = PANE_HANDLER_RET_PANE_TERMINATE;
-        break;
-    }
-
     return rc;
 }
 
@@ -699,11 +693,10 @@ static void render_hndlr_color_lut(pane_cx_t *pane_cx)
         x = x_start + i;
         y = pane->h/2 - 400/2;
         sdl_define_custom_color(20, r,g,b);
-        sdl_render_line(pane, x, y, x, y+400, 20);  // xxx y should be centered
+        sdl_render_line(pane, x, y, x, y+400, 20);
     }
 
-    sprintf(title,"COLOR MAP - START=%d nm  SCALE=%d",
-            wavelen_start, wavelen_scale);
+    sprintf(title,"COLOR MAP - START=%d nm  SCALE=%d", wavelen_start, wavelen_scale);
     x   = pane->w/2 - COL2X(strlen(title),30)/2;
     sdl_render_printf(pane, x, 0, 30,  WHITE, BLACK, "%s", title);
 }
@@ -713,9 +706,6 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
     int rc = PANE_HANDLER_RET_NO_ACTION;
 
     switch (event->event_id) {
-    case SDL_EVENT_KEY_ESC: case 'c':
-        display_select = DISPLAY_SELECT_MBS;
-        break;
     case 'R':
         wavelen_start = WAVELEN_START_DEFAULT;
         wavelen_scale = WAVELEN_SCALE_DEFAULT;
@@ -735,9 +725,6 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
         if (wavelen_start > WAVELEN_LAST) wavelen_start = WAVELEN_FIRST;
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
         break;
-    case 'q':
-        rc = PANE_HANDLER_RET_PANE_TERMINATE;
-        break;
     }
 
     return rc;
@@ -745,20 +732,19 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
 
 // - - - - - - - - -  PANE_HNDLR : DIRECTORY  - - - - - - - - - - - - -
 
-// xxx try to use pane->w instead of win_width
-
-static bool init_needed = true;
-static bool selected[1000];
-static int  y_top;
+static bool init_requested;
 static int  max_file;
+static int  y_top;
+static bool selected[1000];
 
 static void render_hndlr_directory(pane_cx_t *pane_cx)
 {
-    static texture_t texture;
+    rect_t            * pane = &pane_cx->pane;
+    cache_file_info_t * fi;
+    int                 idx, x, y;
 
-    int idx, x, y;
-    cache_file_info_t *fi;
-    rect_t *pane = &pane_cx->pane;
+    static texture_t texture;
+    static int       last_display_select_count;
 
     #define SDL_EVENT_SCROLL_WHEEL (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_CHOICE       (SDL_EVENT_USER_DEFINED + 10)
@@ -769,42 +755,40 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         texture = sdl_create_texture(300, 200);
     }
 
-    // enumerate files if needed
-    if (init_needed) {
+    // initialize when needed
+    if (display_select_count != last_display_select_count || init_requested) {
         max_file = cache_file_enumerate();
-        init_needed = false;
         y_top = 0;
         memset(selected, 0, sizeof(selected));
-        INFO("max_file = %d\n", max_file);
+
+        init_requested = false;
+        last_display_select_count = display_select_count;
     }
 
-    // display the directory
-    // - image
-    // - selected  'X' at upper left
-    // - cached    'C' near upper right
-    // - favorite  '*' upper right
-    // - big X if deleted
-    // - big E if something is wrong
+    // display the directory images
     for (idx = 0; idx < max_file; idx++) {
         // determine location of upper left
         x = (idx % 4) * 300;  // xxx the 4 could be a func of win_width or pane->w
         y = (idx / 4) * 200 + y_top;
 
-        // break out if location is xxx
+        // continue if location is outside of the pane
         if (y <= -200 || y >= pane->h) {
             continue;
         }
 
-        // display it
+        // display the file's directory image
         fi = cache_file_read_dir_info(idx);
         sdl_update_texture(texture, (void*)fi->dir_pixels, 300*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
 
+        // if the file is selected display a small red box in it's upper left
         if (selected[idx]) {
             rect_t loc = {x+5,y+5,15,15};
             sdl_render_fill_rect(pane, &loc, RED);
         }
 
+        // xxx comment
+        // xxx just display the number and not the 'mbs';  and get rid of 'fav_'
         char s[300], *p, *p1;
         strcpy(s, fi->file_name);
         p = basename(s);
@@ -813,19 +797,13 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         int xxx = 300/2 - COL2X(strlen(p),20)/2;
         sdl_render_printf(pane, x+xxx, y+0, 20, WHITE, BLACK, "%s", p);
 
+        // register for events for each directory image that is displayed
         rect_t loc = {x,y,300,200};
-        sdl_register_event(pane, &loc, 
-              SDL_EVENT_CHOICE + idx,
-              SDL_EVENT_TYPE_MOUSE_CLICK,
-              pane_cx);
-        sdl_register_event(pane, &loc, 
-              SDL_EVENT_SELECT + idx,
-              SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK,
-              pane_cx);
-
+        sdl_register_event(pane, &loc, SDL_EVENT_CHOICE + idx, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
+        sdl_register_event(pane, &loc, SDL_EVENT_SELECT + idx, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
     }
 
-    // divide the directory images
+    // separate the directory images with black lines
     int i;
     for (i = 1; i <= 3; i++) {
         x = i * 300;
@@ -845,30 +823,15 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         sdl_render_line(pane, 0, y+1, pane->w-1, y+1, BLACK);
     }
 
-    // register for events
+    // register for additional events
     sdl_register_event(pane, pane, SDL_EVENT_SCROLL_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
 }
 
 static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 {
-    //int rc = PANE_HANDLER_RET_NO_ACTION;
     int rc = PANE_HANDLER_RET_DISPLAY_REDRAW;
 
-// controls
-// - esc or d       return            okay
-// - wheel          scroll            okay
-// - pgup/dn        scroll 
-// - left click     choice            okay
-// - q              exit pgm            okay
-// - right clk      sel / desel         okay
-// - s S            select all            okay
-// - del            delete selected files   okay
     switch (event->event_id) {
-    case SDL_EVENT_KEY_ESC: case 'd':
-        display_select = DISPLAY_SELECT_MBS;
-        init_needed = true;
-        break;
-
     case SDL_EVENT_SCROLL_WHEEL:
     case SDL_EVENT_KEY_PGUP:
     case SDL_EVENT_KEY_PGDN:
@@ -876,7 +839,6 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
     case SDL_EVENT_KEY_DOWN_ARROW:
     case SDL_EVENT_KEY_HOME:
     case SDL_EVENT_KEY_END:
-        // xxx limit scrollint to top and bottom;  also use PgUp Pgdn
         if (event->event_id == SDL_EVENT_SCROLL_WHEEL) {
             if (event->mouse_wheel.delta_y > 0) {
                 y_top += 20;
@@ -899,70 +861,43 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
             FATAL("unexpected event_id 0x%x\n", event->event_id);
         }
 
-        //if (y_top < 0) y_top = 0;
-        //if (y_top > (max_file-1)/4*200) y_top = (max_file-1)/4*200;
-        INFO("%d\n", y_top);
-        int xxx = -((max_file - 1) / 4 + 1) * 200 + 600;
-        if (y_top < xxx) y_top = xxx;
+        int y_top_limit = -((max_file - 1) / 4 + 1) * 200 + 600;
+        if (y_top < y_top_limit) y_top = y_top_limit;
         if (y_top > 0) y_top = 0;
         break;
 
     case SDL_EVENT_CHOICE...SDL_EVENT_CHOICE+1000: {
         int idx = event->event_id - SDL_EVENT_CHOICE;
-        INFO("CHOICE %d\n", idx);
         cache_file_read(idx, &lcl_ctr, &lcl_zoom, &wavelen_start, &wavelen_scale);
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
         display_select = DISPLAY_SELECT_MBS;
-        init_needed = true;
+        display_select_count++;
         break; }
 
     case SDL_EVENT_SELECT...SDL_EVENT_SELECT+1000: {
         int idx = event->event_id - SDL_EVENT_SELECT;
         selected[idx] = !selected[idx];
-        INFO("SELECT %d  is now %d\n", idx, selected[idx]);
         break; }
-    case 's':
-        memset(selected, 1, sizeof(selected));  // xxx max_file
-        break;
+    case 's': {
+        int idx;
+        for (idx = 0; idx < max_file; idx++) {
+            selected[idx] = true;
+        }
+        break; }
     case 'S':
-        memset(selected, 0, sizeof(selected));  // xxx max_file
+        memset(selected, 0, sizeof(selected));
         break;
 
     case SDL_EVENT_KEY_DELETE: {
         int idx;
-        INFO("GOT DEL\n");
         for (idx = 0; idx < max_file; idx++) {
             if (selected[idx]) {
-                INFO(" -- deleting idx=%d\n", idx);
                 cache_file_delete(idx);
             }
         }
-        init_needed = true;
+        init_requested = true;
         break; }
-    case 'q':
-        rc = PANE_HANDLER_RET_PANE_TERMINATE;
-        break;
     }
 
     return rc;
 }
-
-#if 0
-        if (fi == NULL) {
-            sdl_render_text(pane, 
-                            x+300/2,   // xxx plus half char
-                            y+200/2, 
-                            60, 
-                            "X",   // xxx err vs deleted?
-                            GREEN, BLACK);
-            continue;
-        }
-#endif
-#if 0
-        if (false) {  //xxx  use macro on filename
-            sdl_render_text(pane, x+240, y+0, 30, "C", GREEN, BLACK);
-        }
-        if (false) {  //xxx  use macro on filename
-            sdl_render_text(pane, x+270, y+0, 30, "*", YELLOW, BLACK);
-        }
-#endif
