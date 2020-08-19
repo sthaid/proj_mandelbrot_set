@@ -223,6 +223,12 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
                               ? DISPLAY_SELECT_MBS : DISPLAY_SELECT_DIRECTORY);
             display_select_count++;
             break;
+        case SDL_EVENT_KEY_ESC: // another way back to the MBS display
+            if (display_select != DISPLAY_SELECT_MBS) {
+                display_select = DISPLAY_SELECT_MBS;
+                display_select_count++;
+            }
+            break;
         default:
             // it is not a common event, so
             // call the selected event_hndlr
