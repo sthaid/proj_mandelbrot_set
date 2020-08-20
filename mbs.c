@@ -12,8 +12,16 @@
 // defines
 //
 
-#define DEFAULT_WIN_WIDTH         1200
-#define DEFAULT_WIN_HEIGHT        800
+//#define DEFAULT_WIN_WIDTH         1200
+//#define DEFAULT_WIN_HEIGHT        800
+//#define DEFAULT_WIN_WIDTH         1440
+//#define DEFAULT_WIN_HEIGHT        1080
+//#define DEFAULT_WIN_WIDTH         1440
+//#define DEFAULT_WIN_HEIGHT        900  
+//#define DEFAULT_WIN_WIDTH         1600
+//#define DEFAULT_WIN_HEIGHT        900  
+#define DEFAULT_WIN_WIDTH         1500
+#define DEFAULT_WIN_HEIGHT        1000 
 
 #define INITIAL_CTR               (-0.75 + 0.0*I)
 
@@ -456,7 +464,7 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
         wavelen_scale = wavelen_scale +
                               (event->event_id == SDL_EVENT_KEY_UP_ARROW ? 1 : -1);
         if (wavelen_scale < 0) wavelen_scale = 0;
-        if (wavelen_scale > 8) wavelen_scale = 8;
+        if (wavelen_scale > 16) wavelen_scale = 16;
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
         break;
     case SDL_EVENT_KEY_LEFT_ARROW: case SDL_EVENT_KEY_RIGHT_ARROW:
@@ -652,7 +660,7 @@ static void save_file(rect_t *pane)
         y = y + y_step;
     }
 
-    succ = cache_file_create(lcl_ctr, lcl_zoom, wavelen_start, wavelen_scale, pixels);
+    succ = cache_file_create(NULL, false, lcl_ctr, lcl_zoom, wavelen_start, wavelen_scale, pixels);
     set_alert(succ ? GREEN : RED, succ ? "SAVE OKAY" : "SAVE FAILED");
 
     free(mbsval);
@@ -774,8 +782,8 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     // display the directory images
     for (idx = 0; idx < max_file; idx++) {
         // determine location of upper left
-        x = (idx % 4) * 300;  // xxx the 4 could be a func of win_width or pane->w
-        y = (idx / 4) * 200 + y_top;
+        x = (idx % (pane->w/300)) * 300;  // xxx the 4 could be a func of win_width or pane->w
+        y = (idx / (pane->w/300)) * 200 + y_top;
 
         // continue if location is outside of the pane
         if (y <= -200 || y >= pane->h) {
@@ -794,24 +802,10 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // xxx comment
-        // xxx just display the number and not the 'mbs';  and get rid of 'fav_'
-#if 0
-        char s[300], *p, *p1;
-        strcpy(s, fi->file_name);
-        p = basename(s);
-        p1 = strstr(s, ".dat");
-        if (p1) *p1 = '\0';
-        int xxx = 300/2 - COL2X(strlen(p),20)/2;
-        sdl_render_printf(pane, x+xxx, y+0, 20, WHITE, BLACK, "%s", p);
-#else
-        //char s[300];
-        //strcpy(s, fi->file_name+4);
-        //s[4] = '\0';
-        //sdl_render_printf(pane, x+(300/2-COL2X(2,20)), y+0, 20, WHITE, BLACK, "%s", p);
+//AAA can also be other names
         sdl_render_printf(pane, x+(300/2-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
             "%c%c%c%c", 
             fi->file_name[4], fi->file_name[5], fi->file_name[6], fi->file_name[7]);
-#endif
 
         // register for events for each directory image that is displayed
         rect_t loc = {x,y,300,200};

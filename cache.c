@@ -132,7 +132,7 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
     // stop the cache_thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
 
-    // if either window dimension has increased then   XXX or just changed
+    // if either window dimension has increased then   xxx or just changed
     // all of the spirals need to be reset; also
     // reset the spirals when the force flag is set
     if (win_width > cache_win_width || win_height > cache_win_height || force) {
@@ -274,108 +274,178 @@ int cache_file_enumerate(void)
 cache_file_info_t * cache_file_get_dir_info(int idx)
 {
     cache_file_info_t *fi;
+    file_format_t      file;
+    int                fd, len, rc;
+    struct stat        statbuf;
 
+    #define EXPECTED_FILE_SIZE_SINGLE_CACHE_LEVEL         (offsetof(file_format_t, cache[1]))
+    #define EXPECTED_FILE_SIZE_SINGLE_ALL_CACHE_LEVELS    (offsetof(file_format_t, cache[MAX_ZOOM]))
+
+    // verify idx is in range and file_info[idx] is not null
     if (idx >= max_file_info) {
         FATAL("idx=%d too large, max_file_info=%d\n", idx, max_file_info);
     }
-
     fi = file_info[idx];
     if (fi == NULL) {
         FATAL("file_info[%d] is null, max_file_info=%d\n", idx, max_file_info);
     }
 
-    // the file_name may have been marked deleted
+    // the file_name may already have been set to 'deleted' or 'error'
     if (strncmp(fi->file_name, "mbs_", 4) != 0) {
         return fi;
     }
 
-    // if no pixels yet
-    if (fi->dir_pixels[0][0] == 0) do {
-        file_format_t file;
-        int           fd, len;
-        bool          err = false;
-
-        INFO("getting pixels for %s\n", fi->file_name);
-
+    // if file_info has not been initialized for this file then do so
+    if (fi->initialized == false) {
+        // open the file
         fd = open(PATHNAME(fi->file_name), O_RDONLY);
         if (fd == -1) {
             ERROR("failed open %s, %s\n", fi->file_name, strerror(errno));
-            err = true;
-        } else {
-            len = read(fd, &file, sizeof(file_format_t));
-            if (len != sizeof(file_format_t)) {
-                ERROR("failed read %s, %s\n", fi->file_name, strerror(errno));
-                err = true;
-            }
-            close(fd);
+            goto error;
         }
 
-        if (err) {
-            ERROR("deleting %s due to error\n", fi->file_name);
-            unlink(PATHNAME(fi->file_name));
-            strcpy(fi->file_name, "deleted");
-            memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
-            break;
+        // verify file size is as expected
+        rc = fstat(fd, &statbuf);
+        if (rc < 0) {
+            ERROR("failed stat %s, %s\n", fi->file_name, strerror(errno));
+            goto error;
+        }
+        if (statbuf.st_size != EXPECTED_FILE_SIZE_SINGLE_CACHE_LEVEL &&
+            statbuf.st_size != EXPECTED_FILE_SIZE_SINGLE_ALL_CACHE_LEVELS)
+        {
+            ERROR("invalid file_size %ld\n", statbuf.st_size);
+            goto error;
         }
 
+        // read the beginning of the file, this does not include 
+        // reading any of the cahced mbs values
+        len = read(fd, &file, sizeof(file_format_t));
+        if (len != sizeof(file_format_t)) {
+            ERROR("failed read %s, %s\n", fi->file_name, strerror(errno));
+            goto error;
+        }
+
+        // verify file magic 
+        if (file.magic != MAGIC_MBS_FILE) {
+            ERROR("bad magic 0x%lx expected 0x%lx\n", file.magic, MAGIC_MBS_FILE);
+            goto error;
+        }
+
+        // close the fd
+        close(fd);
+        fd = -1;
+
+        // initiailzie file_info fields
+        fi->initialized = true;
+        fi->entire_cache = (statbuf.st_size == EXPECTED_FILE_SIZE_SINGLE_ALL_CACHE_LEVELS);
         memcpy(fi->dir_pixels, file.dir_pixels, sizeof(fi->dir_pixels));
-    } while (0);
+    }
+
+    // success
+    return fi;
+
+error:
+    // error occurred
+    // - close fd
+    // - delete the file
+    // - set file_info fields to indicate an error
+    // - return ptr to file_info
+    if (fd != -1) {
+        close(fd);
+        fd = -1;
+    }
+
+    unlink(PATHNAME(fi->file_name));
+
+    strcpy(fi->file_name, "error");
+    fi->initialized = true;
+    fi->entire_cache = false;
+    memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
 
     return fi;
 }
 
-bool cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
-                      unsigned int * dir_pixels)
+bool cache_file_create(char *file_name_arg, bool entire_cache, 
+        complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+        unsigned int *dir_pixels)
 {
-    int  fd, len;
-    char file_name[100];
+    int                  fd, z;
+    char                 file_name[100];
+    static file_format_t file;
 
-    static file_format_t *file;
+    #define WRITE(addr,len) \
+        do { \
+            if (write(fd, addr, len) != len) {  \
+                ERROR("failed to write %s, %s\n", file_name, strerror(errno)); \
+                close(fd); \
+                cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN); \
+                return false; \
+            } \
+        } while (0)
 
-    #define FILE_SIZE (sizeof(file_format_t) + sizeof(struct file_format_cache_s))
+    // xxx sanity check zoom arg and cache_zoom, there could be a corner case where they differ and ctr
 
-    // XXX sanity check zoom arg and cache_zoom, there could be a corner case where they differ and ctr
-
-    // allocate file on first call, never free
-    if (file == NULL) {
-        file = malloc(FILE_SIZE);
+    // if file_name is supplied by caller then
+    //   use the caller supplied file_name, because the existing file is being overwritten
+    // else
+    //   create a new file_name
+    // endif
+    if (file_name_arg) {
+        strcpy(file_name, file_name_arg);
+    } else {
+        sprintf(file_name, "mbs_%04d.dat", ++last_file_num);
     }
-
-    // create file_name
-    sprintf(file_name, "mbs_%04d.dat", ++last_file_num);
 
     // stop the cache thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
 
-    // construct file in buffer
-    file->magic         = MAGIC_MBS_FILE;
-    file->ctr           = ctr;
-    file->zoom          = zoom;
-    file->wavelen_start = wavelen_start;
-    file->wavelen_scale = wavelen_scale;
-    memset(file->reserved, 0, sizeof(file->reserved));
+    // if entire_cache is requested confirm cache_thread has completed, if not return an error
+    if (entire_cache && cache_thread_finished != ctr) {
+        //AAA print
+        // AAA restart the thread
+        return false;
+    }
 
-    memcpy(file->dir_pixels, dir_pixels, sizeof(file->dir_pixels));
+    // initialize file header
+    file.magic         = MAGIC_MBS_FILE;
+    file.ctr           = ctr;
+    file.zoom          = zoom;
+    file.wavelen_start = wavelen_start;
+    file.wavelen_scale = wavelen_scale;
+    memset(file.reserved, 0, sizeof(file.reserved));
+    memcpy(file.dir_pixels, dir_pixels, sizeof(file.dir_pixels));
 
-    file->cache[0].cache = cache[cache_zoom];
-    file->cache[0].cache.mbsval = NULL;
-    memcpy(file->cache[0].mbsval, cache[cache_zoom].mbsval, MBSVAL_BYTES);
+    // open the file for writing; if the file doesn't exist it will
+    // be created, if it already exists then it will be truncated
+    fd = open(PATHNAME(file_name), O_CREAT|O_TRUNC|O_WRONLY, 0644);
+    if (fd < 0) {
+        ERROR("failed to open %s, %s\n", file_name, strerror(errno));
+        return false;
+    }
+
+    // write the hdr
+    WRITE(&file, sizeof(file_format_t));
+
+    // write the file_format_cache_s for the current zoom level
+    WRITE(&cache[cache_zoom], sizeof(cache_t));
+    WRITE(cache[cache_zoom].mbsval, MBSVAL_BYTES);
+
+    // if writing entire_cache then perform the additional writes
+    if (entire_cache) {
+        for (z = 0; z < MAX_ZOOM; z++) {
+            if (z == cache_zoom) {
+                continue;
+            }
+            WRITE(&cache[z], sizeof(cache_t));
+            WRITE(cache[z].mbsval, MBSVAL_BYTES);
+        }
+    }
+
+    // close fd
+    close(fd);
 
     // run the cache thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
-
-    // write the file to disk
-    fd = open(PATHNAME(file_name), O_CREAT|O_EXCL|O_WRONLY, 0644);
-    if (fd < 0) {
-        ERROR("failed to create %s, %s\n", file_name, strerror(errno));
-        return false;
-    }
-    len = write(fd, file, FILE_SIZE);
-    if (len != FILE_SIZE) {
-        ERROR("failed to write %s, %s\n", file_name, strerror(errno));
-        return false;
-    }
-    close(fd);
 
     // success
     return true;
@@ -383,24 +453,31 @@ bool cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_
 
 bool cache_file_read(int idx, complex *ctr, double *zoom, int *wavelen_start, int *wavelen_scale)
 {
-    int           fd = -1, len, z;
-    file_format_t file;
-    bool          cache_thread_stopped = false;
-    char         *file_name = file_info[idx]->file_name;
+    int                 fd = -1, len, z;
+    file_format_t       file;
+    bool                cache_thread_stopped = false;
+    cache_file_info_t * fi;
 
-    // open file
-    fd = open(PATHNAME(file_name), O_RDONLY);
-    if (fd < 0) {
-        ERROR("open %s, %s", file_name, strerror(errno));
-        goto error;
+    // verify idx is in range and file_info[idx] is not null
+    if (idx >= max_file_info) {
+        FATAL("idx=%d too large, max_file_info=%d\n", idx, max_file_info);
+    }
+    fi = file_info[idx];
+    if (fi == NULL) {
+        FATAL("file_info[%d] is null, max_file_info=%d\n", idx, max_file_info);
     }
 
-    // xxx stat file to check size
+    // open file
+    fd = open(PATHNAME(fi->file_name), O_RDONLY);
+    if (fd < 0) {
+        ERROR("open %s, %s", fi->file_name, strerror(errno));
+        goto error;
+    }
 
     // read file_format_t, this does not read any cache levels
     len = read(fd, &file, sizeof(file));
     if (len != sizeof(file)) {
-        ERROR("read %s, %s", file_name, strerror(errno));
+        ERROR("read %s, %s", fi->file_name, strerror(errno));
         goto error;
     }
 
@@ -425,7 +502,7 @@ bool cache_file_read(int idx, complex *ctr, double *zoom, int *wavelen_start, in
         }
 
         if (len != sizeof(struct file_format_cache_s)) {
-            ERROR("read %s, %s", file_name, strerror(errno));
+            ERROR("read %s, %s", fi->file_name, strerror(errno));
             goto error;
         }
 
@@ -444,11 +521,12 @@ bool cache_file_read(int idx, complex *ctr, double *zoom, int *wavelen_start, in
 
     // close file
     close(fd);
+    fd = -1;
 
     // xxx comment
     cache_param_change(file.ctr, file.zoom, cache_win_width, cache_win_height, true);
 
-    // XXX return stuff
+    // xxx return stuff
     *ctr           = file.ctr;
     *zoom          = file.zoom;
     *wavelen_start = file.wavelen_start;
@@ -471,102 +549,28 @@ void cache_file_delete(int idx)
 {
     cache_file_info_t *fi = file_info[idx];
 
+    // verify idx is in range and file_info[idx] is not null
+    if (idx >= max_file_info) {
+        FATAL("idx=%d too large, max_file_info=%d\n", idx, max_file_info);
+    }
+    fi = file_info[idx];
+    if (fi == NULL) {
+        FATAL("file_info[%d] is null, max_file_info=%d\n", idx, max_file_info);
+    }
+
+    // confirm file_name, because it could have been set to 'error' or 'deleted'
     if (strncmp(fi->file_name, "mbs_", 4) != 0) {
         return;
     }
 
     INFO("deleting %s\n", fi->file_name);
-
     unlink(PATHNAME(fi->file_name));
+
     strcpy(fi->file_name, "deleted");
+    fi->initialized = true;
+    fi->entire_cache = false;
     memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
 }
-
-
-#if 0
-    int              fd=1, len, z, rc;
-    char             errstr[200]="";
-    file_hdr_t       hdr;
-    unsigned short (*mbsval)[CACHE_WIDTH][CACHE_HEIGHT] = NULL;
-    struct stat      statbuf;
-
-    #define EXPECTED_FILE_SIZE (sizeof(file_hdr_t) + MAX_ZOOM * (sizeof(cache_t) + MBSVAL_BYTES))
-
-    INFO("starting, file_name=%s\n", file_name);
-
-    cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
-
-    fd = open(file_name, O_RDONLY);
-    if (fd < 0) {
-        sprintf(errstr, "open %s, %s", file_name, strerror(errno));
-        goto done;
-    }
-
-    rc = fstat(fd, &statbuf);
-    if (rc < 0) {
-        sprintf(errstr, "fstat %s, %s", file_name, strerror(errno));
-        goto done;
-    }
-    if (statbuf.st_size != EXPECTED_FILE_SIZE) {
-        sprintf(errstr, "file size %ld not expected %ld\n", statbuf.st_size, EXPECTED_FILE_SIZE);
-        goto done;
-    }
-
-    len = read(fd, &hdr, sizeof(hdr));
-    if (len != sizeof(file_hdr_t)) {
-        sprintf(errstr, "read-hdr %s, %s", file_name, strerror(errno));
-        goto done;
-    }
-
-    if (hdr.magic != MAGIC_MBS_FILE) {
-        sprintf(errstr, "bad hdr.magic = 0x%lx\n", hdr.magic);
-        goto done;
-    }
-
-    for (z = 0; z < MAX_ZOOM; z++) {
-        cache_t cache_tmp = cache[z];
-        len = read(fd, &cache_tmp, sizeof(cache_tmp));
-        if (len != sizeof(cache_tmp)) {
-            sprintf(errstr, "read-cache[%d] %s, %s", z, file_name, strerror(errno));
-            goto done;
-        }
-
-        mbsval = malloc(MBSVAL_BYTES);
-        len = read(fd, mbsval, MBSVAL_BYTES);
-        if (len != MBSVAL_BYTES) {
-            sprintf(errstr, "read-mbsval[%d] %s, %s", z, file_name, strerror(errno));
-            goto done;
-        }
-
-        cache_tmp.mbsval = mbsval;
-        free(cache[z].mbsval);
-        cache[z] = cache_tmp;
-        mbsval = NULL;
-    }
-
-    *ctr           = hdr.ctr;
-    *zoom          = hdr.zoom;
-    *wavelen_start = hdr.wavelen_start;
-    *wavelen_scale = hdr.wavelen_scale;
-
-    cache_ctr  = hdr.ctr;
-    cache_zoom = floor(hdr.zoom);
-
-done:
-    if (errstr[0] != '\0') {
-        ERROR("%s\n", errstr);
-    } else {
-        INFO("success\n");
-    }
-    if (fd != -1) {
-        close(fd);
-    }
-    if (mbsval) {
-        free(mbsval);
-    }
-    cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
-    return errstr[0] == '\0';
-#endif
 
 // -----------------  PRIVATE - ADJUST MBSVAL CENTER  ---------------------------------
 
@@ -832,6 +836,7 @@ static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
     }
     if (n != MAX_ZOOM) FATAL("n = %d\n",n);
 
+#if 0 // xxx
     char str[200], *p=str;
     for (n = 0; n < MAX_ZOOM; n++) {
         p += sprintf(p, "%d ", zoom_lvl_tbl[n]);
@@ -839,6 +844,7 @@ static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
     INFO("dir=%s zoom=%d last=%d - %s\n", 
          (dir_is_up ? "UP" : "DOWN"),
          cache_zoom, last_cache_zoom, str);
+#endif
 
     last_cache_zoom = cache_zoom;
 }

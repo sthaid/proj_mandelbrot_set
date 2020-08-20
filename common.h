@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <unistd.h>
 #include <libgen.h>
 #include <string.h>
@@ -37,8 +38,9 @@
 //
 
 typedef struct {
-    char file_name[300];  // xxx do we need the name?,  maybe for fav vs mbs
-    //int file_num;         // xxx already part of the name
+    char         file_name[300];
+    bool         initialized;    // indicates the following fields have been initialized
+    bool         entire_cache;
     unsigned int dir_pixels[200][300];
 } cache_file_info_t;
 
@@ -61,8 +63,9 @@ void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog);
 
 int cache_file_enumerate(void);
 cache_file_info_t * cache_file_get_dir_info(int idx);
-bool cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
-                       unsigned int * pixels);
+bool cache_file_create(char *file_name_arg, bool entire_cache,
+        complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+        unsigned int *dir_pixels);
 bool cache_file_read(int idx, complex *ctr, double *zoom, 
                      int *wavelen_start, int *wavelen_scale);
 void cache_file_delete(int idx);
