@@ -18,6 +18,8 @@
 
 #define CTR_INVALID                 (999 + 0 * I)
 
+#define MBS_CACHE_DIR               ".mbs_cache"
+
 //
 // typedefs
 //
@@ -95,21 +97,19 @@ void cache_init(double pixel_size_at_zoom0)
         cp->phase2_spiral_done = true;
     }
 
-    // XXX define for .mbs_save
-    // make the .mbs_save directory, if needed
-    rc = stat(".mbs_save", &statbuf);
+    // make the MBS_CACHE_DIR directory, if needed
+    rc = stat(MBS_CACHE_DIR, &statbuf);
     if (rc == 0 && (statbuf.st_mode & S_IFDIR) == 0) {
-        FATAL(".mbs_save exists and is not a directory\n");
+        FATAL("%s exists and is not a directory\n", MBS_CACHE_DIR);
     }
     if (rc < 0 && errno == ENOENT) {
-        rc = mkdir(".mbs_save", 0755);
+        rc = mkdir(MBS_CACHE_DIR, 0755);
         if (rc != 0) {
-            FATAL("failed to create .mbs_save directory, %s\n", strerror(errno));
+            FATAL("failed to create %s directory, %s\n", MBS_CACHE_DIR, strerror(errno));
         }
-        INFO("creted .mbs_save dir\n");
     }
 
-    // xxx comment
+    // xxx comment - get last_file_num
     cache_file_enumerate();
 
     pthread_create(&id, NULL, cache_thread, NULL);
@@ -192,6 +192,9 @@ void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog)
 
 // -----------------  API : FILE  -----------------------------------------------------
 
+#define PATHNAME(fn) \
+    ({static char s[500]; sprintf(s, MBS_CACHE_DIR "/" "%s", fn), s;})
+
 typedef struct {
     long         magic;
     complex      ctr;
@@ -226,9 +229,9 @@ int cache_file_enumerate(void)
     int                file_num;
     int                i;
 
-    d = opendir(".mbs_save");
+    d = opendir(MBS_CACHE_DIR);
     if (d == NULL) {
-        FATAL("failed opendir .mbs_save, %s\n", strerror(errno));
+        FATAL("failed opendir %s, %s\n", MBS_CACHE_DIR, strerror(errno));
     }
 
     max_file_info = 0;
@@ -236,13 +239,8 @@ int cache_file_enumerate(void)
 
     while ((de = readdir(d)) != NULL) {
         file_name = de->d_name;
-        if (strncmp(file_name, "mbs_", 4) != 0 && strncmp(file_name, "fav_", 4) != 0) {
-            continue;
-        }
 
-        if (sscanf(file_name, "mbs_%d_.dat", &file_num) != 1 &&
-            sscanf(file_name, "fav_%d_.dat", &file_num) != 1) 
-        {
+        if (sscanf(file_name, "mbs_%d_.dat", &file_num) != 1) {
             continue;
         }
 
@@ -252,10 +250,12 @@ int cache_file_enumerate(void)
         }
 
         fi = calloc(1,sizeof(cache_file_info_t));
-        sprintf(fi->file_name, ".mbs_save/%s", file_name);
+        strcpy(fi->file_name, file_name);
 
         free(file_info[max_file_info]);
-        file_info[max_file_info++] = fi;
+        file_info[max_file_info] = fi;
+
+        max_file_info++;
     }
 
     qsort(file_info, max_file_info, sizeof(void*), compare);
@@ -271,8 +271,7 @@ int cache_file_enumerate(void)
     return max_file_info;
 }
 
-// XXX call this get_dir_info
-cache_file_info_t * cache_file_read_dir_info(int idx)
+cache_file_info_t * cache_file_get_dir_info(int idx)
 {
     cache_file_info_t *fi;
 
@@ -285,9 +284,8 @@ cache_file_info_t * cache_file_read_dir_info(int idx)
         FATAL("file_info[%d] is null, max_file_info=%d\n", idx, max_file_info);
     }
 
-    if (strncmp(fi->file_name, ".mbs_save/mbs", 13) != 0 &&
-        strncmp(fi->file_name, ".mbs_save/fav", 13) != 0)
-    {
+    // the file_name may have been marked deleted
+    if (strncmp(fi->file_name, "mbs_", 4) != 0) {
         return fi;
     }
 
@@ -299,7 +297,7 @@ cache_file_info_t * cache_file_read_dir_info(int idx)
 
         INFO("getting pixels for %s\n", fi->file_name);
 
-        fd = open(fi->file_name, O_RDONLY);
+        fd = open(PATHNAME(fi->file_name), O_RDONLY);
         if (fd == -1) {
             ERROR("failed open %s, %s\n", fi->file_name, strerror(errno));
             err = true;
@@ -314,8 +312,9 @@ cache_file_info_t * cache_file_read_dir_info(int idx)
 
         if (err) {
             ERROR("deleting %s due to error\n", fi->file_name);
-            unlink(fi->file_name);
-            // xxx update the filename too
+            unlink(PATHNAME(fi->file_name));
+            strcpy(fi->file_name, "deleted");
+            memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
             break;
         }
 
@@ -325,28 +324,25 @@ cache_file_info_t * cache_file_read_dir_info(int idx)
     return fi;
 }
 
-// XXX need to get last_file_num if not already set
-// XXX call this create
-bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
-                     unsigned int * dir_pixels)
+bool cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+                      unsigned int * dir_pixels)
 {
     int  fd, len;
-    char filename[100];
+    char file_name[100];
 
     static file_format_t *file;
 
     #define FILE_SIZE (sizeof(file_format_t) + sizeof(struct file_format_cache_s))
 
-    // XXX sanity check zoom arg and cache_zoom, there could be a corner case where they differ
-    //      and ctr
+    // XXX sanity check zoom arg and cache_zoom, there could be a corner case where they differ and ctr
 
     // allocate file on first call, never free
     if (file == NULL) {
         file = malloc(FILE_SIZE);
     }
 
-    // create filename
-    sprintf(filename, ".mbs_save/mbs_%04d.dat", ++last_file_num);
+    // create file_name
+    sprintf(file_name, "mbs_%04d.dat", ++last_file_num);
 
     // stop the cache thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
@@ -369,14 +365,14 @@ bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_sc
     cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
 
     // write the file to disk
-    fd = open(filename, O_CREAT|O_EXCL|O_WRONLY, 0644);
+    fd = open(PATHNAME(file_name), O_CREAT|O_EXCL|O_WRONLY, 0644);
     if (fd < 0) {
-        ERROR("failed to create %s, %s\n", filename, strerror(errno));
+        ERROR("failed to create %s, %s\n", file_name, strerror(errno));
         return false;
     }
     len = write(fd, file, FILE_SIZE);
     if (len != FILE_SIZE) {
-        ERROR("failed to write %s, %s\n", filename, strerror(errno));
+        ERROR("failed to write %s, %s\n", file_name, strerror(errno));
         return false;
     }
     close(fd);
@@ -388,14 +384,12 @@ bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_sc
 bool cache_file_read(int idx, complex *ctr, double *zoom, int *wavelen_start, int *wavelen_scale)
 {
     int           fd = -1, len, z;
-    bool          cache_thread_stopped = false;
     file_format_t file;
-
-    // xxx needs check of idx:w
-    char *file_name = file_info[idx]->file_name;
+    bool          cache_thread_stopped = false;
+    char         *file_name = file_info[idx]->file_name;
 
     // open file
-    fd = open(file_name, O_RDONLY);
+    fd = open(PATHNAME(file_name), O_RDONLY);
     if (fd < 0) {
         ERROR("open %s, %s", file_name, strerror(errno));
         goto error;
@@ -460,7 +454,6 @@ bool cache_file_read(int idx, complex *ctr, double *zoom, int *wavelen_start, in
     *wavelen_start = file.wavelen_start;
     *wavelen_scale = file.wavelen_scale;
 
-
     // return success
     return true;
 
@@ -476,24 +469,15 @@ error:
 
 void cache_file_delete(int idx)
 {
-    cache_file_info_t *fi;
+    cache_file_info_t *fi = file_info[idx];
 
-    // xxx needs check of idx:w
-
-    
-    fi = file_info[idx];
-
-// XXX filename should not be pathname
-    INFO("CALLED FOR  %s\n", fi->file_name);
-    if (strncmp(fi->file_name, ".mbs_save/mbs", 13) != 0 &&
-        strncmp(fi->file_name, ".mbs_save/fav", 13) != 0)
-    {
+    if (strncmp(fi->file_name, "mbs_", 4) != 0) {
         return;
     }
 
-    INFO("UNLINKING %s\n", fi->file_name);
-    unlink(fi->file_name);
+    INFO("deleting %s\n", fi->file_name);
 
+    unlink(PATHNAME(fi->file_name));
     strcpy(fi->file_name, "deleted");
     memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
 }

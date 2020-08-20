@@ -60,9 +60,9 @@ void cache_get_mbsval(unsigned short *mbsval, int width, int height);
 void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog);
 
 int cache_file_enumerate(void);
-cache_file_info_t * cache_file_read_dir_info(int idx);
-bool cache_file_save(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
-                     unsigned int * pixels);
+cache_file_info_t * cache_file_get_dir_info(int idx);
+bool cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+                       unsigned int * pixels);
 bool cache_file_read(int idx, complex *ctr, double *zoom, 
                      int *wavelen_start, int *wavelen_scale);
 void cache_file_delete(int idx);

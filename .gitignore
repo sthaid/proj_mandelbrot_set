@@ -1,4 +1,4 @@
 *.o
 *.d
 mbs
-mbs_[0-9].dat
+.mbs_cache
