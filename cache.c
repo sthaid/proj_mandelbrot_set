@@ -401,8 +401,8 @@ bool cache_file_create(char *file_name_arg, bool entire_cache,
 
     // if entire_cache is requested confirm cache_thread has completed, if not return an error
     if (entire_cache && cache_thread_finished != ctr) {
-        //AAA print
-        // AAA restart the thread
+        // AAA print xxx
+        // AAA restart the thread xxx
         return false;
     }
 

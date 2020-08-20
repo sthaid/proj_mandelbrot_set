@@ -12,14 +12,6 @@
 // defines
 //
 
-//#define DEFAULT_WIN_WIDTH         1200
-//#define DEFAULT_WIN_HEIGHT        800
-//#define DEFAULT_WIN_WIDTH         1440
-//#define DEFAULT_WIN_HEIGHT        1080
-//#define DEFAULT_WIN_WIDTH         1440
-//#define DEFAULT_WIN_HEIGHT        900  
-//#define DEFAULT_WIN_WIDTH         1600
-//#define DEFAULT_WIN_HEIGHT        900  
 #define DEFAULT_WIN_WIDTH         1500
 #define DEFAULT_WIN_HEIGHT        1000 
 
@@ -750,6 +742,7 @@ static bool init_requested;
 static int  max_file;
 static int  y_top;
 static bool selected[1000];
+static int  activity_indicator;
 
 static void render_hndlr_directory(pane_cx_t *pane_cx)
 {
@@ -774,6 +767,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         max_file = cache_file_enumerate();
         y_top = 0;
         memset(selected, 0, sizeof(selected));
+        activity_indicator = 3;  // xxxxxx
 
         init_requested = false;
         last_display_select_count = display_select_count;
@@ -799,6 +793,18 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         if (selected[idx]) {
             rect_t loc = {x+5,y+5,15,15};
             sdl_render_fill_rect(pane, &loc, RED);
+        }
+
+        // if the activity_indicator is active for this file then 
+        // display the activity indicator
+        if (activity_indicator == idx) {
+            static char *ind = "|/-\\";
+            static int   ind_idx;
+            sdl_render_printf(pane, 
+                              x+(300/2-COL2X(1,80)/2), y+(200/2-ROW2Y(1,80)/2), 
+                              80, WHITE, BLACK, 
+                              "%c", ind[ind_idx]);
+            ind_idx = (ind_idx + 1) % 4;
         }
 
         // xxx comment
