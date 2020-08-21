@@ -220,6 +220,18 @@ static int compare(const void *arg1, const void *arg2)
     return strcmp(a->file_name, b->file_name);
 }
 
+static void set_cache_file_info_invalid(cache_file_info_t *fi, char *str)
+{
+    if (strncmp(fi->file_name, "mbs_", 4) == 0) {
+        unlink(PATHNAME(fi->file_name));
+    }
+
+    sprintf(fi->file_name, "____%s____", str);
+    fi->initialized = true;
+    fi->file_size = 0;
+    memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
+}
+
 int cache_file_enumerate(void)
 {
     DIR               *d;
@@ -278,8 +290,7 @@ cache_file_info_t * cache_file_get_dir_info(int idx)
     int                fd, len, rc;
     struct stat        statbuf;
 
-    #define EXPECTED_FILE_SIZE_SINGLE_CACHE_LEVEL         (offsetof(file_format_t, cache[1]))
-    #define EXPECTED_FILE_SIZE_SINGLE_ALL_CACHE_LEVELS    (offsetof(file_format_t, cache[MAX_ZOOM]))
+    #define EXPECTED_FILE_SIZE(n)   (offsetof(file_format_t, cache[n]))
 
     // verify idx is in range and file_info[idx] is not null
     if (idx >= max_file_info) {
@@ -310,8 +321,9 @@ cache_file_info_t * cache_file_get_dir_info(int idx)
             ERROR("failed stat %s, %s\n", fi->file_name, strerror(errno));
             goto error;
         }
-        if (statbuf.st_size != EXPECTED_FILE_SIZE_SINGLE_CACHE_LEVEL &&
-            statbuf.st_size != EXPECTED_FILE_SIZE_SINGLE_ALL_CACHE_LEVELS)
+        if (statbuf.st_size != EXPECTED_FILE_SIZE(0) &&
+            statbuf.st_size != EXPECTED_FILE_SIZE(1) &&   // AAA may not support this
+            statbuf.st_size != EXPECTED_FILE_SIZE(MAX_ZOOM))
         {
             ERROR("invalid file_size %ld\n", statbuf.st_size);
             goto error;
@@ -337,7 +349,7 @@ cache_file_info_t * cache_file_get_dir_info(int idx)
 
         // initiailzie file_info fields
         fi->initialized = true;
-        fi->entire_cache = (statbuf.st_size == EXPECTED_FILE_SIZE_SINGLE_ALL_CACHE_LEVELS);
+        fi->file_size = statbuf.st_size;
         memcpy(fi->dir_pixels, file.dir_pixels, sizeof(fi->dir_pixels));
     }
 
@@ -347,21 +359,13 @@ cache_file_info_t * cache_file_get_dir_info(int idx)
 error:
     // error occurred
     // - close fd
-    // - delete the file
-    // - set file_info fields to indicate an error
+    // - set the file_info to ERR, note this deletes the file too
     // - return ptr to file_info
     if (fd != -1) {
         close(fd);
         fd = -1;
     }
-
-    unlink(PATHNAME(fi->file_name));
-
-    strcpy(fi->file_name, "error");
-    fi->initialized = true;
-    fi->entire_cache = false;
-    memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
-
+    set_cache_file_info_invalid(fi, "ERR");
     return fi;
 }
 
@@ -563,13 +567,43 @@ void cache_file_delete(int idx)
         return;
     }
 
-    INFO("deleting %s\n", fi->file_name);
-    unlink(PATHNAME(fi->file_name));
+    // set the file_info to DEL, note this deletes the file too
+    set_cache_file_info_invalid(fi, "DEL");
+}
 
-    strcpy(fi->file_name, "deleted");
-    fi->initialized = true;
-    fi->entire_cache = false;
-    memset(fi->dir_pixels, 0, sizeof(fi->dir_pixels));
+void cache_file_truncate(int idx)
+{
+    cache_file_info_t *fi = file_info[idx];
+    struct stat statbuf;
+    int rc;
+
+    // verify idx is in range and file_info[idx] is not null
+    if (idx >= max_file_info) {
+        FATAL("idx=%d too large, max_file_info=%d\n", idx, max_file_info);
+    }
+    fi = file_info[idx];
+    if (fi == NULL) {
+        FATAL("file_info[%d] is null, max_file_info=%d\n", idx, max_file_info);
+    }
+
+    // truncate the file
+    rc = truncate(PATHNAME(fi->file_name), sizeof(file_format_t));
+    if (rc != 0) {
+        ERROR("truncate %s failed, %s\n", fi->file_name, strerror(errno));
+        set_cache_file_info_invalid(fi, "ERR");  // AAA review where this is being called
+        return;
+    }
+
+    // get the files new size, and save it in file_info
+    rc = stat(PATHNAME(fi->file_name), &statbuf);
+    if (rc < 0) {
+        ERROR("failed stat %s, %s\n", fi->file_name, strerror(errno));
+        set_cache_file_info_invalid(fi, "ERR");
+        return;
+    }
+    fi->file_size = statbuf.st_size;
+
+    // AAA validate the size to make sure nothing went wrong
 }
 
 // -----------------  PRIVATE - ADJUST MBSVAL CENTER  ---------------------------------

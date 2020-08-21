@@ -1,4 +1,3 @@
 *.o
 *.d
 mbs
-.mbs_cache

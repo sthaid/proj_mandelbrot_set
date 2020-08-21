@@ -40,7 +40,7 @@
 typedef struct {
     char         file_name[300];
     bool         initialized;    // indicates the following fields have been initialized
-    bool         entire_cache;
+    int          file_size;
     unsigned int dir_pixels[200][300];
 } cache_file_info_t;
 
@@ -69,5 +69,6 @@ bool cache_file_create(char *file_name_arg, bool entire_cache,
 bool cache_file_read(int idx, complex *ctr, double *zoom, 
                      int *wavelen_start, int *wavelen_scale);
 void cache_file_delete(int idx);
+void cache_file_truncate(int idx);
 
 #endif

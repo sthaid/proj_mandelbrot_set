@@ -767,7 +767,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         max_file = cache_file_enumerate();
         y_top = 0;
         memset(selected, 0, sizeof(selected));
-        activity_indicator = 3;  // xxxxxx
+        activity_indicator = -1;
 
         init_requested = false;
         last_display_select_count = display_select_count;
@@ -785,7 +785,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // display the file's directory image
-        fi = cache_file_get_dir_info(idx);
+        fi = cache_file_get_dir_info(idx); // AAA if fi name is not good then continue
         sdl_update_texture(texture, (void*)fi->dir_pixels, 300*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
 
@@ -808,7 +808,6 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // xxx comment
-//AAA can also be other names
         sdl_render_printf(pane, x+(300/2-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
             "%c%c%c%c", 
             fi->file_name[4], fi->file_name[5], fi->file_name[6], fi->file_name[7]);
@@ -909,9 +908,20 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         for (idx = 0; idx < max_file; idx++) {
             if (selected[idx]) {
                 cache_file_delete(idx);
+                selected[idx] = false;
             }
         }
         init_requested = true;
+        break; }
+
+    case '1': {
+        int idx;
+        for (idx = 0; idx < max_file; idx++) {
+            if (selected[idx]) {
+                cache_file_truncate(idx);
+                selected[idx] = false;
+            }
+        }
         break; }
     }
 
