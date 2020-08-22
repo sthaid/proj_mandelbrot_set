@@ -168,6 +168,7 @@ int32_t sdl_init(int32_t *w, int32_t *h, bool resizeable, bool swap_white_black)
     *w = sdl_win_width;
     *h = sdl_win_height;
 
+#if 0  // XXX causing crash
     // init button_sound
     if (Mix_OpenAudio( 22050, MIX_DEFAULT_FORMAT, 2, 4096) < 0) {
         WARN("Mix_OpenAudio failed\n");
@@ -179,6 +180,7 @@ int32_t sdl_init(int32_t *w, int32_t *h, bool resizeable, bool swap_white_black)
         }
         Mix_VolumeChunk(sdl_button_sound,MIX_MAX_VOLUME/2);
     }
+#endif
 
     // initialize True Type Font
     if (TTF_Init() < 0) {

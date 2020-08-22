@@ -38,17 +38,26 @@
 //
 
 typedef struct {
-    char         file_name[300];
-    bool         initialized;    // indicates the following fields have been initialized
-    int          file_size;
-    unsigned int dir_pixels[200][300];
+    unsigned long magic;
+    char          file_name[300];
+    int           file_type;             // 0,1,2  xxx explain
+    complex       ctr;
+    double        zoom;
+    int           wavelen_start;
+    int           wavelen_scale;
+    bool          deleted;
+    int           reserved[10];
+    unsigned int  dir_pixels[200][300];
 } cache_file_info_t;
 
 //
 // variables
 //
 
-bool debug_enabled;
+bool                debug_enabled;
+
+cache_file_info_t * file_info[1000];
+int                 max_file_info;
 
 //
 // prototypes
@@ -61,14 +70,11 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
 void cache_get_mbsval(unsigned short *mbsval, int width, int height);
 void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog);
 
-int cache_file_enumerate(void);
-cache_file_info_t * cache_file_get_dir_info(int idx);
-bool cache_file_create(char *file_name_arg, bool entire_cache,
-        complex ctr, double zoom, int wavelen_start, int wavelen_scale,
-        unsigned int *dir_pixels);
-bool cache_file_read(int idx, complex *ctr, double *zoom, 
-                     int *wavelen_start, int *wavelen_scale);
+int cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+                      unsigned int *dir_pixels);
+void cache_file_update(int idx, int file_type);
 void cache_file_delete(int idx);
-void cache_file_truncate(int idx);
+void cache_file_read(int idx);
+void cache_file_garbage_collect(void);
 
 #endif

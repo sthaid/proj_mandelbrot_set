@@ -624,7 +624,6 @@ static void save_file(rect_t *pane)
     int             x_idx, y_idx, idx, w, h;
     unsigned int   *pixels;
     unsigned short *mbsval;
-    bool            succ;
     double          x, y, x_step, y_step;
 
     w      = pane->w *  pow(2, -(lcl_zoom - floor(lcl_zoom)));
@@ -652,8 +651,8 @@ static void save_file(rect_t *pane)
         y = y + y_step;
     }
 
-    succ = cache_file_create(NULL, false, lcl_ctr, lcl_zoom, wavelen_start, wavelen_scale, pixels);
-    set_alert(succ ? GREEN : RED, succ ? "SAVE OKAY" : "SAVE FAILED");
+    cache_file_create(lcl_ctr, lcl_zoom, wavelen_start, wavelen_scale, pixels);
+    set_alert(GREEN, "SAVE COMPLETE");
 
     free(mbsval);
     free(pixels);
@@ -738,17 +737,15 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
 
 // - - - - - - - - -  PANE_HNDLR : DIRECTORY  - - - - - - - - - - - - -
 
-static bool init_requested;
-static int  max_file;
+static bool init_request;
 static int  y_top;
-static bool selected[1000];
 static int  activity_indicator;
+static bool selected[1000];
 
 static void render_hndlr_directory(pane_cx_t *pane_cx)
 {
-    rect_t            * pane = &pane_cx->pane;
-    cache_file_info_t * fi;
-    int                 idx, x, y;
+    rect_t * pane = &pane_cx->pane;
+    int      idx, x, y;
 
     static texture_t texture;
     static int       last_display_select_count;
@@ -763,19 +760,28 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     }
 
     // initialize when needed
-    if (display_select_count != last_display_select_count || init_requested) {
-        max_file = cache_file_enumerate();
-        y_top = 0;
-        memset(selected, 0, sizeof(selected));
-        activity_indicator = -1;
+    if (display_select_count != last_display_select_count || init_request) {
+        cache_file_garbage_collect();
 
-        init_requested = false;
+        y_top = 0;
+        activity_indicator = 3;  // xxx -1;
+        memset(selected, 0, sizeof(selected));
+
+        init_request = false;
         last_display_select_count = display_select_count;
     }
 
     // display the directory images
-    for (idx = 0; idx < max_file; idx++) {
+    for (idx = 0; idx < max_file_info; idx++) {
+        cache_file_info_t *fi = file_info[idx];
+
+        // if file has been deleted then continue
+        if (fi->deleted) {
+            continue;
+        }
+
         // determine location of upper left
+        // xxx don't use idx here
         x = (idx % (pane->w/300)) * 300;  // xxx the 4 could be a func of win_width or pane->w
         y = (idx / (pane->w/300)) * 200 + y_top;
 
@@ -785,7 +791,6 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // display the file's directory image
-        fi = cache_file_get_dir_info(idx); // AAA if fi name is not good then continue
         sdl_update_texture(texture, (void*)fi->dir_pixels, 300*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
 
@@ -807,7 +812,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
             ind_idx = (ind_idx + 1) % 4;
         }
 
-        // xxx comment
+        // display the file number
         sdl_render_printf(pane, x+(300/2-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
             "%c%c%c%c", 
             fi->file_name[4], fi->file_name[5], fi->file_name[6], fi->file_name[7]);
@@ -827,7 +832,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         sdl_render_line(pane, x+0, 0, x+0, pane->h-1, BLACK);
         sdl_render_line(pane, x+1, 0, x+1, pane->h-1, BLACK);
     }
-    for (i = 1; i <= max_file-1; i++) {
+    for (i = 1; i <= max_file_info-1; i++) {
         y = (i / 4) * 200 + y_top;
         if (y+1 < 0 || y-2 > pane->h-1) {
             continue;
@@ -845,6 +850,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
 static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 {
     int rc = PANE_HANDLER_RET_DISPLAY_REDRAW;
+    int idx;
 
     switch (event->event_id) {
     case SDL_EVENT_SCROLL_WHEEL:
@@ -871,58 +877,64 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         } else if (event->event_id == SDL_EVENT_KEY_HOME) {
             y_top = 0;
         } else if (event->event_id == SDL_EVENT_KEY_END) {
-            y_top = -((max_file - 1) / 4 + 1) * 200 + 600;
+            y_top = -((max_file_info - 1) / 4 + 1) * 200 + 600;
         } else {
             FATAL("unexpected event_id 0x%x\n", event->event_id);
         }
 
-        int y_top_limit = -((max_file - 1) / 4 + 1) * 200 + 600;
+        int y_top_limit = -((max_file_info - 1) / 4 + 1) * 200 + 600;
         if (y_top < y_top_limit) y_top = y_top_limit;
         if (y_top > 0) y_top = 0;
         break;
 
-    case SDL_EVENT_CHOICE...SDL_EVENT_CHOICE+1000: {
-        int idx = event->event_id - SDL_EVENT_CHOICE;
-        cache_file_read(idx, &lcl_ctr, &lcl_zoom, &wavelen_start, &wavelen_scale);
+    case SDL_EVENT_CHOICE...SDL_EVENT_CHOICE+1000:
+        idx = event->event_id - SDL_EVENT_CHOICE;
+        cache_file_read(idx);
+
+        lcl_ctr       = file_info[idx]->ctr;
+        lcl_zoom      = file_info[idx]->zoom;
+        wavelen_start = file_info[idx]->wavelen_start;
+        wavelen_scale = file_info[idx]->wavelen_scale;
+
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
         display_select = DISPLAY_SELECT_MBS;
         display_select_count++;
-        break; }
-
-    case SDL_EVENT_SELECT...SDL_EVENT_SELECT+1000: {
-        int idx = event->event_id - SDL_EVENT_SELECT;
-        selected[idx] = !selected[idx];
-        break; }
-    case 's': {
-        int idx;
-        for (idx = 0; idx < max_file; idx++) {
-            selected[idx] = true;
-        }
-        break; }
-    case 'S':
-        memset(selected, 0, sizeof(selected));
         break;
 
-    case SDL_EVENT_KEY_DELETE: {
-        int idx;
-        for (idx = 0; idx < max_file; idx++) {
+    case SDL_EVENT_SELECT...SDL_EVENT_SELECT+1000:
+        idx = event->event_id - SDL_EVENT_SELECT;
+        selected[idx] = !selected[idx];
+        break;
+    case 's':
+        for (idx = 0; idx < max_file_info; idx++) {
+            selected[idx] = true;
+        }
+        break;
+    case 'S':
+        for (idx = 0; idx < max_file_info; idx++) {
+            selected[idx] = false;
+        }
+        break;
+
+    case SDL_EVENT_KEY_DELETE:
+        for (idx = 0; idx < max_file_info; idx++) {
             if (selected[idx]) {
                 cache_file_delete(idx);
-                selected[idx] = false;
             }
         }
-        init_requested = true;
-        break; }
+        init_request = true;
+        break;
 
+#if 0 //xxx 
     case '1': {
-        int idx;
-        for (idx = 0; idx < max_file; idx++) {
+        for (idx = 0; idx < max_file_info; idx++) {
             if (selected[idx]) {
                 cache_file_truncate(idx);
                 selected[idx] = false;
             }
         }
         break; }
+#endif
     }
 
     return rc;
