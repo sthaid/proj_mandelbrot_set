@@ -66,6 +66,7 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event);
 
 static void render_hndlr_directory(pane_cx_t *pane_cx);
 static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event);
+static void thread_directory(void);
 
 // -----------------  MAIN  -------------------------------------------------
 
@@ -738,7 +739,10 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
 // - - - - - - - - -  PANE_HNDLR : DIRECTORY  - - - - - - - - - - - - -
 
 static bool init_request;
+
 static int  y_top;
+static bool thread_run;
+static int  thread_preempt_loc;
 static int  activity_indicator;
 static bool selected[1000];
 
@@ -754,7 +758,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     #define SDL_EVENT_CHOICE       (SDL_EVENT_USER_DEFINED + 10)
     #define SDL_EVENT_SELECT       (SDL_EVENT_USER_DEFINED + 1100)
 
-    // allocate texture
+    // one time only init
     if (texture == NULL) {
         texture = sdl_create_texture(300, 200);
     }
@@ -763,26 +767,32 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     if (display_select_count != last_display_select_count || init_request) {
         cache_file_garbage_collect();
 
-        y_top = 0;
-        activity_indicator = 3;  // xxx -1;
+        y_top              = 0;
+        thread_run         = false;
+        thread_preempt_loc = 0;
+        activity_indicator = -1;
         memset(selected, 0, sizeof(selected));
 
         init_request = false;
         last_display_select_count = display_select_count;
     }
 
+    // xxx
+    thread_directory();
+
     // display the directory images
     for (idx = 0; idx < max_file_info; idx++) {
         cache_file_info_t *fi = file_info[idx];
 
         // if file has been deleted then continue
+        // xxx this should not happen because
         if (fi->deleted) {
             continue;
         }
 
         // determine location of upper left
         // xxx don't use idx here
-        x = (idx % (pane->w/300)) * 300;  // xxx the 4 could be a func of win_width or pane->w
+        x = (idx % (pane->w/300)) * 300;
         y = (idx / (pane->w/300)) * 200 + y_top;
 
         // continue if location is outside of the pane
@@ -918,24 +928,91 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 
     case SDL_EVENT_KEY_DELETE:
         for (idx = 0; idx < max_file_info; idx++) {
-            if (selected[idx]) {
-                cache_file_delete(idx);
+            if (!selected[idx] || file_info[idx]->deleted) {
+                selected[idx] = false;
+                continue;
             }
+            cache_file_delete(idx);
+            selected[idx] = false;
         }
         init_request = true;
         break;
 
-#if 0 //xxx 
-    case '1': {
+    case '0': {
         for (idx = 0; idx < max_file_info; idx++) {
-            if (selected[idx]) {
-                cache_file_truncate(idx);
+            if (!selected[idx] || file_info[idx]->deleted) {
                 selected[idx] = false;
+                continue;
             }
+            //xxx cache_file_truncate(idx);
+            selected[idx] = false;
         }
         break; }
-#endif
+    case '1':
+        thread_run = true;
+        break;
     }
 
     return rc;
+}
+
+#define LABEL(n) lab_ ## n
+#define PREEMPT(n) \
+    { \
+    thread_preempt_loc = n; \
+    return; \
+    LABEL(n): ; \
+    }
+
+static void thread_directory(void)
+{
+    switch (thread_preempt_loc) {
+    case 0: break;
+    case 1: goto lab_1;
+    case 2: goto lab_2;
+    default: FATAL("xxxxxxxxxxxx\n");
+    }
+
+    static int idx, i;
+
+    idx = 0;
+    i   = 0;
+
+    while (true) {
+        while (thread_run == false) {
+            PREEMPT(1);
+        }
+        thread_run = false;
+
+        INFO("starting\n");
+        for (idx = 0; idx < max_file_info; idx++) {
+            if (!selected[idx] || file_info[idx]->deleted) {
+                selected[idx] = false;
+                continue;
+            }
+
+            // enable the activity_indicator
+            activity_indicator = idx;
+
+            // wait for xxx
+            INFO("working on idx=%d %s\n", idx, file_info[idx]->file_name);
+            for (i = 0; i < 60; i++) {
+                PREEMPT(2);
+                if (!selected[idx]) {
+                    break;
+                }
+            }
+            if (!selected[idx]) {
+                activity_indicator = -1;
+                continue;
+            }
+
+            // update file
+            INFO("writing file for idx=%d %s\n", idx, file_info[idx]->file_name);
+
+            activity_indicator = -1;
+            selected[idx] = false;
+        }
+        INFO("done\n");
+    }
 }
