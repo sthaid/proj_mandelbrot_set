@@ -1,8 +1,10 @@
 // xxx try to use pane->w instead of win_width
 // xxx add support for fully cache the selected items
-// xxx use zoom and zoom_fraction
 // xxx use defines for autozoom
 // xxx use defines for the 300x200 dir image size
+
+// XXX use zoom and zoom_fraction
+
 
 #include <common.h>
 
@@ -777,7 +779,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         last_display_select_count = display_select_count;
     }
 
-    // xxx
+    // xxx comment
     thread_directory();
 
     // display the directory images
@@ -996,7 +998,7 @@ static void thread_directory(void)
     case 0: break;
     case 1: goto lab_1;
     case 2: goto lab_2;
-    default: FATAL("xxxxxxxxxxxx\n");
+    default: FATAL("thread_preempt_loc=%d\n", thread_preempt_loc);
     }
 
     static int idx;
@@ -1025,7 +1027,7 @@ static void thread_directory(void)
             // enable the activity_indicator
             activity_indicator = idx;
 
-            // xxx check the cahce thread code if there is a problem 
+            // xxx check the cache thread code if there is a problem 
             //     if these are equal to the cache size
             cache_param_change(file_info[idx]->ctr, file_info[idx]->zoom, 1990, 1990, true);
 

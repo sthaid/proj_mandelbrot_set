@@ -123,8 +123,6 @@ static void cache_thread_issue_request(int req);
 static void cache_spiral_init(spiral_t *s, int x, int y);
 static void cache_spiral_get_next(spiral_t *s, int *x, int *y);
 
-// xxxxxxxxxxxxxxxxxxxxxxx
-
 // -----------------  INITIALIZATION  -------------------------------------------------
 
 void cache_init(double pixel_size_at_zoom0)
@@ -679,7 +677,7 @@ restart:
                     }
                 }
 
-//  AAA check the idx here
+                // XXX check the idx here
                 COMPUTE_MBSVAL(idx_a,idx_b,cp);
             }
 
@@ -723,7 +721,7 @@ restart:
             }
         }
 
-        // xxx
+        // caching of all zoom levels has completed
         DEBUG("ALL FINISHED \n");
         cache_thread_all_finished = true;
     }
