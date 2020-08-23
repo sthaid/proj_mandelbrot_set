@@ -103,10 +103,10 @@ static cache_t  cache[MAX_ZOOM];
 
 static spiral_t cache_initial_spiral;
 static int      cache_thread_request;
-static complex  cache_thread_finished;
+static bool     cache_thread_first_phase1_zoom_lvl_finished;
+static bool     cache_thread_all_finished;
 
-static int      cache_status_phase;
-static int      cache_status_percent_complete;
+static int      cache_status_phase_inprog;
 static int      cache_status_zoom_lvl_inprog;
 
 //
@@ -122,6 +122,8 @@ static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl);
 static void cache_thread_issue_request(int req);
 static void cache_spiral_init(spiral_t *s, int x, int y);
 static void cache_spiral_get_next(spiral_t *s, int *x, int *y);
+
+// xxxxxxxxxxxxxxxxxxxxxxx
 
 // -----------------  INITIALIZATION  -------------------------------------------------
 
@@ -226,11 +228,9 @@ void cache_get_mbsval(unsigned short *mbsval, int width, int height)
 
 // -----------------  STATUS  ---------------------------------------------------------
 
-//xxx not working well
-void cache_status(int *phase, int *percent_complete, int *zoom_lvl_inprog)
+void cache_status(int *phase_inprog, int *zoom_lvl_inprog)
 {
-    *phase            = cache_status_phase;
-    *percent_complete = cache_status_percent_complete;
+    *phase_inprog     = cache_status_phase_inprog;
     *zoom_lvl_inprog  = cache_status_zoom_lvl_inprog;
 }
 
@@ -429,7 +429,35 @@ void cache_file_read(int idx)
 
 void cache_file_update(int idx, int file_type)
 {
-    // xxx later
+    cache_file_info_t *fi = IDX_TO_FI(idx);
+    int z, fd;
+
+    INFO("idx=%d fn=%s file_type=%d->%d\n", idx, fi->file_name, fi->file_type, file_type);
+
+    // when called for file_type 1 or 2 the cache_ctr and cache_zoom
+    // are supposed to be equal to the file_info
+    if (file_type == 1 || file_type == 2) {
+        if (fi->ctr != cache_ctr || (int)fi->zoom != cache_zoom) {
+            FATAL("cache_ctr/zoom don't match file_info\n");
+        }
+    }
+
+    OPEN(fi->file_name, fd, O_TRUNC|O_WRONLY);
+
+    fi->file_type = file_type;
+    WRITE(fi->file_name, fd, fi, sizeof(cache_file_info_t));
+
+    for (z = 0; z < MAX_ZOOM; z++) {
+        if ((file_type == 1 && z == (int)fi->zoom) || (file_type == 2)) {
+            INFO("- writing zoom lvl %d\n", z);
+            cache_t cache_tmp = cache[z];
+            cache_tmp.mbsval = NULL;
+            WRITE(fi->file_name, fd, &cache_tmp, sizeof(cache_tmp));
+            WRITE(fi->file_name, fd, cache[z].mbsval, MBSVAL_BYTES);
+        }
+    }
+
+    CLOSE(fi->file_name, fd);
 }
 
 void cache_file_garbage_collect(void)
@@ -506,6 +534,16 @@ static void cache_adjust_mbsval_ctr(cache_t *cp)
 
 // -----------------  CACHE THREAD  ---------------------------------------------------
 
+bool cache_thread_first_phase1_zoom_lvl_is_finished(void)
+{
+    return cache_thread_first_phase1_zoom_lvl_finished;
+}
+
+bool cache_thread_all_is_finished(void)
+{
+    return cache_thread_all_finished;
+}
+
 static void *cache_thread(void *cx)
 {
     #define CHECK_FOR_STOP_REQUEST \
@@ -556,8 +594,7 @@ static void *cache_thread(void *cx)
     while (true) {
 restart:
         // now in idle phase
-        cache_status_phase            = 0;
-        cache_status_percent_complete = -1;
+        cache_status_phase_inprog     = 0;
         cache_status_zoom_lvl_inprog  = -1;
 
         // debug print the completion status, using vars
@@ -593,9 +630,6 @@ restart:
         __sync_synchronize();
 
         // xxx comments for all of the following
-        // xxx this might be better in the code that kicks the cahce thread to run
-        cache_thread_finished = CTR_INVALID;
-
         start_tsc          = tsc_timer();
         start_us           = microsec_timer();
         was_stopped        = false;
@@ -612,12 +646,12 @@ restart:
 
         // phase1: loop over all zoom levels
         DEBUG("STARTING PHASE1\n");
-        cache_status_phase = 1;
+        cache_status_phase_inprog = 1;
         for (n = 0; n < MAX_ZOOM; n++) {
             CHECK_FOR_STOP_REQUEST;
 
-            cache_status_percent_complete = 100 * n / MAX_ZOOM;
             cache_status_zoom_lvl_inprog  = zoom_lvl_tbl[n];
+            DEBUG("- inprog : %d - %d\n", cache_status_phase_inprog, cache_status_zoom_lvl_inprog);
             __sync_synchronize();
 
             cp = &cache[cache_status_zoom_lvl_inprog];
@@ -645,18 +679,24 @@ restart:
                     }
                 }
 
+//  AAA check the idx here
                 COMPUTE_MBSVAL(idx_a,idx_b,cp);
+            }
+
+            if (n == 0) {
+                DEBUG("FINISHD phase1 lvl0\n");
+                cache_thread_first_phase1_zoom_lvl_finished = true;
             }
         }
 
         // phase2: loop over all zoom levels  xxx describe phase1 vs 2
         DEBUG("STARTING PHASE2\n");
-        cache_status_phase = 2;
+        cache_status_phase_inprog = 2;
         for (n = 0; n < MAX_ZOOM; n++) {
             CHECK_FOR_STOP_REQUEST;
 
-            cache_status_percent_complete = 100 * n / MAX_ZOOM;  // xxx maybe get rid of percent_comp
             cache_status_zoom_lvl_inprog  = zoom_lvl_tbl[n];
+            DEBUG("- inprog : %d - %d\n", cache_status_phase_inprog, cache_status_zoom_lvl_inprog);
             __sync_synchronize();
 
             cp = &cache[cache_status_zoom_lvl_inprog];
@@ -684,7 +724,8 @@ restart:
         }
 
         // xxx
-        cache_thread_finished = cache_ctr;
+        DEBUG("ALL FINISHED \n");
+        cache_thread_all_finished = true;
     }
 }
 
@@ -732,6 +773,10 @@ static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
 
 static void cache_thread_issue_request(int req)
 {
+    // xxx
+    cache_thread_first_phase1_zoom_lvl_finished = false;
+    cache_thread_all_finished = false;
+
     // xxx comments
     __sync_synchronize();
     cache_thread_request = req;

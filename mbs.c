@@ -587,17 +587,17 @@ static void display_info_proc(rect_t *pane,
     char line[20][50];
     int  line_len[20];
     int  n=0, max_len=0, i;
-    int  phase, percent_complete, zoom_lvl_inprog;
+    int  phase_inprog, zoom_lvl_inprog;
 
     // print info to line[] array
     sprintf(line[n++], "Window: %d %d", win_width, win_height);
     sprintf(line[n++], "Zoom:   %0.2f", lcl_zoom);
     sprintf(line[n++], "Color:  %d %d", wavelen_start, wavelen_scale);   
-    cache_status(&phase, &percent_complete, &zoom_lvl_inprog);
-    if (phase == 0) {
+    cache_status(&phase_inprog, &zoom_lvl_inprog);
+    if (phase_inprog == 0) {
         sprintf(line[n++], "Cache:  Idle");
     } else {
-        sprintf(line[n++], "Cache:  Phase%d %d%% Zoom=%d", phase, percent_complete, zoom_lvl_inprog);
+        sprintf(line[n++], "Cache:  Phase%d Zoom=%d", phase_inprog, zoom_lvl_inprog);
     }
     sprintf(line[n++], "Intvl:  %ld ms", update_intvl_ms);
     sprintf(line[n++], "Debug:  %s", debug_enabled ? "True" : "False");
@@ -741,7 +741,7 @@ static int event_hndlr_color_lut(pane_cx_t *pane_cx, sdl_event_t *event)
 static bool init_request;
 
 static int  y_top;
-static bool thread_run;
+static int  thread_run;
 static int  thread_preempt_loc;
 static int  activity_indicator;
 static bool selected[1000];
@@ -768,7 +768,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         cache_file_garbage_collect();
 
         y_top              = 0;
-        thread_run         = false;
+        thread_run         = 0;
         thread_preempt_loc = 0;
         activity_indicator = -1;
         memset(selected, 0, sizeof(selected));
@@ -781,17 +781,18 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     thread_directory();
 
     // display the directory images
+    // xxx comment on what is displayed with the image
     for (idx = 0; idx < max_file_info; idx++) {
         cache_file_info_t *fi = file_info[idx];
 
-        // if file has been deleted then continue
-        // xxx this should not happen because
+        // if file has been deleted then continue,
+        // - this should not happen because whenever a file is deleted init_request is set,
+        //   which causes cache_file_garbage_collect to be called
         if (fi->deleted) {
             continue;
         }
 
         // determine location of upper left
-        // xxx don't use idx here
         x = (idx % (pane->w/300)) * 300;
         y = (idx / (pane->w/300)) * 200 + y_top;
 
@@ -803,12 +804,6 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         // display the file's directory image
         sdl_update_texture(texture, (void*)fi->dir_pixels, 300*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
-
-        // if the file is selected display a small red box in it's upper left
-        if (selected[idx]) {
-            rect_t loc = {x+5,y+5,15,15};
-            sdl_render_fill_rect(pane, &loc, RED);
-        }
 
         // if the activity_indicator is active for this file then 
         // display the activity indicator
@@ -822,10 +817,20 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
             ind_idx = (ind_idx + 1) % 4;
         }
 
+        // display a small red box in it's upper left, if this image is selected
+        if (selected[idx]) {
+            rect_t loc = {x,y,17,20};
+            sdl_render_fill_rect(pane, &loc, RED);
+        }
+
         // display the file number
         sdl_render_printf(pane, x+(300/2-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
             "%c%c%c%c", 
             fi->file_name[4], fi->file_name[5], fi->file_name[6], fi->file_name[7]);
+
+        // display file type
+        sdl_render_printf(pane, x+300-COL2X(1,20), y+0, 20, WHITE, BLACK,
+            "%d", fi->file_type);
 
         // register for events for each directory image that is displayed
         rect_t loc = {x,y,300,200};
@@ -834,8 +839,9 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     }
 
     // separate the directory images with black lines
+    // xxx check that this is working in full scrn
     int i;
-    for (i = 1; i <= 3; i++) {
+    for (i = 1; i < (pane->w/300); i++) {
         x = i * 300;
         sdl_render_line(pane, x-2, 0, x-2, pane->h-1, BLACK);
         sdl_render_line(pane, x-1, 0, x-1, pane->h-1, BLACK);
@@ -843,7 +849,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         sdl_render_line(pane, x+1, 0, x+1, pane->h-1, BLACK);
     }
     for (i = 1; i <= max_file_info-1; i++) {
-        y = (i / 4) * 200 + y_top;
+        y = (i / (pane->w/300)) * 200 + y_top;   // XXX this needs recoding
         if (y+1 < 0 || y-2 > pane->h-1) {
             continue;
         }
@@ -899,6 +905,7 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 
     case SDL_EVENT_CHOICE...SDL_EVENT_CHOICE+1000:
         idx = event->event_id - SDL_EVENT_CHOICE;
+
         cache_file_read(idx);
 
         lcl_ctr       = file_info[idx]->ctr;
@@ -927,6 +934,10 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         break;
 
     case SDL_EVENT_KEY_DELETE:
+        if (thread_run != 0) {
+            set_alert(RED, "BUSY");
+            break;
+        }
         for (idx = 0; idx < max_file_info; idx++) {
             if (!selected[idx] || file_info[idx]->deleted) {
                 selected[idx] = false;
@@ -939,17 +950,32 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         break;
 
     case '0': {
+        if (thread_run != 0) {
+            set_alert(RED, "BUSY");
+            break;
+        }
         for (idx = 0; idx < max_file_info; idx++) {
             if (!selected[idx] || file_info[idx]->deleted) {
                 selected[idx] = false;
                 continue;
             }
-            //xxx cache_file_truncate(idx);
+            cache_file_update(idx, 0);
             selected[idx] = false;
         }
         break; }
     case '1':
-        thread_run = true;
+        if (thread_run != 0) {
+            set_alert(RED, "BUSY");
+            break;
+        }
+        thread_run = 1;
+        break;
+    case '2':
+        if (thread_run != 0) {
+            set_alert(RED, "BUSY");
+            break;
+        }
+        thread_run = 2;
         break;
     }
 
@@ -973,20 +999,25 @@ static void thread_directory(void)
     default: FATAL("xxxxxxxxxxxx\n");
     }
 
-    static int idx, i;
+    static int idx;
 
     idx = 0;
-    i   = 0;
 
     while (true) {
-        while (thread_run == false) {
+        while (thread_run == 0) {
             PREEMPT(1);
         }
-        thread_run = false;
 
-        INFO("starting\n");
+        INFO("starting, thread_run=%d\n", thread_run);
+
         for (idx = 0; idx < max_file_info; idx++) {
+            // xxx comments
             if (!selected[idx] || file_info[idx]->deleted) {
+                selected[idx] = false;
+                continue;
+            }
+
+            if (file_info[idx]->file_type == thread_run) {
                 selected[idx] = false;
                 continue;
             }
@@ -994,13 +1025,22 @@ static void thread_directory(void)
             // enable the activity_indicator
             activity_indicator = idx;
 
+            // xxx check the cahce thread code if there is a problem 
+            //     if these are equal to the cache size
+            cache_param_change(file_info[idx]->ctr, file_info[idx]->zoom, 1990, 1990, true);
+
             // wait for xxx
-            INFO("working on idx=%d %s\n", idx, file_info[idx]->file_name);
-            for (i = 0; i < 60; i++) {
-                PREEMPT(2);
+            INFO("- waiting for cache complete for %s\n", file_info[idx]->file_name);
+            while (true) {
+                if ((thread_run == 1 && cache_thread_first_phase1_zoom_lvl_is_finished()) ||
+                    (thread_run == 2 && cache_thread_all_is_finished()))
+                {
+                    break;
+                }
                 if (!selected[idx]) {
                     break;
                 }
+                PREEMPT(2);
             }
             if (!selected[idx]) {
                 activity_indicator = -1;
@@ -1008,11 +1048,17 @@ static void thread_directory(void)
             }
 
             // update file
-            INFO("writing file for idx=%d %s\n", idx, file_info[idx]->file_name);
+            INFO("- updating file %s\n", file_info[idx]->file_name);
+            cache_file_update(idx, thread_run);
+            INFO("- updating file completed\n");
 
+            // done updating this file, clear the activity indicator and selected
             activity_indicator = -1;
             selected[idx] = false;
         }
+
+        // done, set thread_run to 0 because this is now idle
         INFO("done\n");
+        thread_run = 0;
     }
 }
