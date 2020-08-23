@@ -54,10 +54,9 @@ static void display_alert(rect_t *pane);
 static void init_hndlr_mbs(void);
 static void render_hndlr_mbs(pane_cx_t *pane_cx);
 static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event);
-static double zoom_step(double z, bool dir_is_incr);
+static void zoom_step(bool dir_is_incr);
 static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *color_lut);
-static void display_info_proc(rect_t *pane, double lcl_zoom, int wavelen_start, int wavelen_scale,
-                         unsigned long update_intvl_ms);
+static void display_info_proc(rect_t *pane, unsigned long update_intvl_ms);
 static void save_file(rect_t *pane);
 
 static void render_hndlr_help(pane_cx_t *pane_cx);
@@ -296,12 +295,15 @@ static void display_alert(rect_t *pane)
 
 // - - - - - - - - -  PANE_HNDLR : MBS   - - - - - - - - - - - - - - - -
 
+#define ZOOM_TOTAL (zoom + zoom_fraction)
+
 static int          wavelen_start                = WAVELEN_START_DEFAULT;
 static int          wavelen_scale                = WAVELEN_SCALE_DEFAULT;
 static int          auto_zoom                    = 0;
 static int          auto_zoom_last               = 1;            //xxx needs defines
-static complex      lcl_ctr                      = INITIAL_CTR;  // xxx rename 
-static double       lcl_zoom                     = 0;            // xxx rename
+static complex      ctr                          = INITIAL_CTR;  // xxx rename 
+static int          zoom                         = 0;            // xxx rename
+static double       zoom_fraction                = 0;
 static bool         display_info                 = true;
 static bool         debug_force_cache_thread_run = false;
 static unsigned int color_lut[65536];
@@ -354,17 +356,17 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
 
     // if auto_zoom is enabled then increment or decrement the zoom until limit is reached
     if (auto_zoom != 0) {
-        lcl_zoom = zoom_step(lcl_zoom, auto_zoom == 1);
-        if (lcl_zoom == 0) {
+        zoom_step(auto_zoom == 1);
+        if (ZOOM_TOTAL == 0) {
             auto_zoom = 0;
         }
-        if (lcl_zoom == LAST_ZOOM) {
+        if (ZOOM_TOTAL == (MAX_ZOOM-1)) {
             auto_zoom = 0;
         }
     }
 
     // inform mandelbrot set cache of the current ctr and zoom
-    cache_param_change(lcl_ctr, floor(lcl_zoom), win_width, win_height, debug_force_cache_thread_run);
+    cache_param_change(ctr, zoom, win_width, win_height, debug_force_cache_thread_run);
     debug_force_cache_thread_run = false;
 
     // get the cached mandelbrot set values; and
@@ -382,17 +384,11 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
 
     // xxx comments
     rect_t src;
-    static double lcl_zoom_last;
-    bool do_print = lcl_zoom != lcl_zoom_last;
-    lcl_zoom_last = lcl_zoom;
-    do_print = false; //xxx
-    double xxx = pow(2, -(lcl_zoom - floor(lcl_zoom)));
-    src.w = pane->w * xxx;
-    src.h = pane->h * xxx;
+    double tmp = pow(2, -zoom_fraction);
+    src.w = pane->w * tmp;
+    src.h = pane->h * tmp;
     src.x = (pane->w - src.w) / 2;
     src.y = (pane->h - src.h) / 2;
-    if (do_print) INFO("xxx = %.25lf  xywh = %d %d %d %d\n", 
-                        xxx, src.x, src.y, src.w, src.h);
 
     // render the src area of the texture to the entire pane
     rect_t dst = {0,0,pane->w,pane->h};
@@ -400,11 +396,7 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
 
     // display info in upper left corner
     if (display_info) {
-        display_info_proc(pane, 
-                          lcl_zoom, 
-                          wavelen_start, 
-                          wavelen_scale,
-                          update_intvl_ms);
+        display_info_proc(pane, update_intvl_ms);
     }
 
     // when debug_enabled display a squae in the center of the pane;
@@ -431,8 +423,9 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
 
     // --- GENERAL ---
     case 'r':
-        lcl_ctr  = INITIAL_CTR;
-        lcl_zoom = 0;
+        ctr           = INITIAL_CTR;
+        zoom          = 0;
+        zoom_fraction = 0.0;
         break;
     case 'R':
         wavelen_start = WAVELEN_START_DEFAULT;
@@ -472,33 +465,34 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
 
     // --- CENTER ---
     case SDL_EVENT_PAN: {
-        double pixel_size = pixel_size_at_zoom0 * pow(2,-lcl_zoom);
-        lcl_ctr += -(event->mouse_motion.delta_x * pixel_size) + 
-                         -(event->mouse_motion.delta_y * pixel_size) * I;
+        double pixel_size = pixel_size_at_zoom0 * pow(2,-ZOOM_TOTAL);
+        ctr += -(event->mouse_motion.delta_x * pixel_size) + 
+               -(event->mouse_motion.delta_y * pixel_size) * I;
         break; }
     case SDL_EVENT_CENTER: {
-        double pixel_size = pixel_size_at_zoom0 * pow(2,-lcl_zoom);
-        lcl_ctr += ((event->mouse_click.x - (pane->w/2)) * pixel_size) + 
-                         ((event->mouse_click.y - (pane->h/2)) * pixel_size) * I;
+        double pixel_size = pixel_size_at_zoom0 * pow(2,-ZOOM_TOTAL);
+        ctr += ((event->mouse_click.x - (pane->w/2)) * pixel_size) + 
+               ((event->mouse_click.y - (pane->h/2)) * pixel_size) * I;
         break; }
 
     // --- ZOOM ---
     case '+': case '=': case '-':
-        lcl_zoom = zoom_step(lcl_zoom, 
-                                   event->event_id == '+' || event->event_id == '=');
+        zoom_step(event->event_id == '+' || event->event_id == '=');
         break;
     case SDL_EVENT_ZOOM:
         if (event->mouse_wheel.delta_y > 0) {
-            lcl_zoom = zoom_step(lcl_zoom, true);
+            zoom_step(true);
         } else if (event->mouse_wheel.delta_y < 0) {
-            lcl_zoom = zoom_step(lcl_zoom, false);
+            zoom_step(false);
         }
         break;
     case 'z':
-        if (lcl_zoom == LAST_ZOOM) {
-            lcl_zoom = 0;
+        if (ZOOM_TOTAL == (MAX_ZOOM-1)) {
+            zoom = 0;
+            zoom_fraction = 0;
         } else {
-            lcl_zoom = LAST_ZOOM;
+            zoom = (MAX_ZOOM-1);
+            zoom_fraction = 0;
         }
         break;
 
@@ -509,9 +503,9 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
             auto_zoom_last = auto_zoom;
             auto_zoom = 0;
         } else {
-            if (lcl_zoom == 0) {
+            if (ZOOM_TOTAL == 0) {
                 auto_zoom = 1;
-            } else if (lcl_zoom == LAST_ZOOM) {
+            } else if (ZOOM_TOTAL == (MAX_ZOOM-1)) {
                 auto_zoom = 2;
             } else {
                 auto_zoom = auto_zoom_last;
@@ -533,18 +527,24 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
     return rc;
 }
 
-static double zoom_step(double z, bool dir_is_incr)
+static void zoom_step(bool dir_is_incr)
 {
+    double z = ZOOM_TOTAL;
+
     z += (dir_is_incr ? ZOOM_STEP : -ZOOM_STEP);
 
     if (fabs(z - nearbyint(z)) < 1e-6) {
         z = nearbyint(z);
     }
 
-    if (z < 0) z = 0;
-    if (z > LAST_ZOOM) z = LAST_ZOOM;
+    if (z < 0) {
+        z = 0;
+    } else if (z > (MAX_ZOOM-1)) {
+        z = (MAX_ZOOM-1);
+    }
 
-    return z;
+    zoom = z;
+    zoom_fraction = z - zoom;
 }
 
 static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *color_lut)
@@ -580,11 +580,7 @@ static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *c
     }
 }
 
-static void display_info_proc(rect_t *pane,
-                              double lcl_zoom,
-                              int wavelen_start,
-                              int wavelen_scale,
-                              unsigned long update_intvl_ms)
+static void display_info_proc(rect_t *pane, unsigned long update_intvl_ms)
 {
     char line[20][50];
     int  line_len[20];
@@ -593,7 +589,7 @@ static void display_info_proc(rect_t *pane,
 
     // print info to line[] array
     sprintf(line[n++], "Window: %d %d", win_width, win_height);
-    sprintf(line[n++], "Zoom:   %0.2f", lcl_zoom);
+    sprintf(line[n++], "Zoom:   %0.2f", ZOOM_TOTAL);
     sprintf(line[n++], "Color:  %d %d", wavelen_start, wavelen_scale);   
     cache_status(&phase_inprog, &zoom_lvl_inprog);
     if (phase_inprog == 0) {
@@ -629,8 +625,8 @@ static void save_file(rect_t *pane)
     unsigned short *mbsval;
     double          x, y, x_step, y_step;
 
-    w      = pane->w *  pow(2, -(lcl_zoom - floor(lcl_zoom)));
-    h      = pane->h *  pow(2, -(lcl_zoom - floor(lcl_zoom)));
+    w      = pane->w *  pow(2, -zoom_fraction);
+    h      = pane->h *  pow(2, -zoom_fraction);
     x      = 0;
     y      = 0;
     y_step = h / 200.;
@@ -654,7 +650,7 @@ static void save_file(rect_t *pane)
         y = y + y_step;
     }
 
-    cache_file_create(lcl_ctr, lcl_zoom, wavelen_start, wavelen_scale, pixels);
+    cache_file_create(ctr, zoom, zoom_fraction, wavelen_start, wavelen_scale, pixels);
     set_alert(GREEN, "SAVE COMPLETE");
 
     free(mbsval);
@@ -910,8 +906,9 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 
         cache_file_read(idx);
 
-        lcl_ctr       = file_info[idx]->ctr;
-        lcl_zoom      = file_info[idx]->zoom;
+        ctr           = file_info[idx]->ctr;
+        zoom          = file_info[idx]->zoom;
+        zoom_fraction = file_info[idx]->zoom_fraction;
         wavelen_start = file_info[idx]->wavelen_start;
         wavelen_scale = file_info[idx]->wavelen_scale;
 

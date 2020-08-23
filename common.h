@@ -28,7 +28,6 @@
 //
 
 #define MAX_ZOOM             47
-#define LAST_ZOOM            (MAX_ZOOM-1)
 
 #define MBSVAL_IN_SET        1000
 #define MBSVAL_NOT_COMPUTED  65535
@@ -42,7 +41,8 @@ typedef struct {
     char          file_name[300];
     int           file_type;             // 0,1,2  xxx explain
     complex       ctr;
-    double        zoom;
+    int           zoom;
+    double        zoom_fraction;
     int           wavelen_start;
     int           wavelen_scale;
     bool          deleted;
@@ -73,7 +73,7 @@ void cache_status(int *phase_inprog, int *zoom_lvl_inprog);
 bool cache_thread_first_phase1_zoom_lvl_is_finished(void);
 bool cache_thread_all_is_finished(void);
 
-int cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+int cache_file_create(complex ctr, int zoom, double zoom_fraction, int wavelen_start, int wavelen_scale,
                       unsigned int *dir_pixels);
 void cache_file_update(int idx, int file_type);
 void cache_file_delete(int idx);

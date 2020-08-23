@@ -128,19 +128,19 @@ static void cache_spiral_get_next(spiral_t *s, int *x, int *y);
 void cache_init(double pixel_size_at_zoom0)
 {
     pthread_t id;
-    int       zoom;
+    int       z;  // xxx rename to z
 
     cache_spiral_init(&cache_initial_spiral, CACHE_WIDTH/2, CACHE_HEIGHT/2);
 
-    for (zoom = 0; zoom < MAX_ZOOM; zoom++) {
-        cache_t *cp = &cache[zoom];
+    for (z = 0; z < MAX_ZOOM; z++) {
+        cache_t *cp = &cache[z];
 
         cp->mbsval = malloc(MBSVAL_BYTES);
 
         memset(cp->mbsval, 0xff, MBSVAL_BYTES);
         cp->ctr                = CTR_INVALID;
-        cp->zoom               = zoom;
-        cp->pixel_size         = pixel_size_at_zoom0 * pow(2,-zoom);
+        cp->zoom               = z;
+        cp->pixel_size         = pixel_size_at_zoom0 * pow(2,-z);
         cp->phase1_spiral      = cache_initial_spiral;
         cp->phase1_spiral_done = true;
         cp->phase2_spiral      = cache_initial_spiral;
@@ -322,7 +322,7 @@ static void cache_file_init(void)
     }
 }
 
-int cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_scale,
+int cache_file_create(complex ctr, int zoom, double zoom_fraction, int wavelen_start, int wavelen_scale,
                       unsigned int *dir_pixels)
 {
     int                fd, idx;
@@ -340,6 +340,7 @@ int cache_file_create(complex ctr, double zoom, int wavelen_start, int wavelen_s
     fi->file_type     = 0;
     fi->ctr           = ctr;
     fi->zoom          = zoom;
+    fi->zoom_fraction = zoom_fraction;
     fi->wavelen_start = wavelen_start;
     fi->wavelen_scale = wavelen_scale;
     fi->deleted       = false;
@@ -435,7 +436,7 @@ void cache_file_update(int idx, int file_type)
     // when called for file_type 1 or 2 the cache_ctr and cache_zoom
     // are supposed to be equal to the file_info
     if (file_type == 1 || file_type == 2) {
-        if (fi->ctr != cache_ctr || (int)fi->zoom != cache_zoom) {
+        if (fi->ctr != cache_ctr || fi->zoom != cache_zoom) {
             FATAL("cache_ctr/zoom don't match file_info\n");
         }
     }
@@ -446,7 +447,7 @@ void cache_file_update(int idx, int file_type)
     WRITE(fi->file_name, fd, fi, sizeof(cache_file_info_t));
 
     for (z = 0; z < MAX_ZOOM; z++) {
-        if ((file_type == 1 && z == (int)fi->zoom) || (file_type == 2)) {
+        if ((file_type == 1 && z == fi->zoom) || (file_type == 2)) {
             INFO("- writing zoom lvl %d\n", z);
             cache_t cache_tmp = cache[z];
             cache_tmp.mbsval = NULL;
@@ -736,7 +737,7 @@ static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
 
     if (cache_zoom == 0) {
         dir_is_up = true;
-    } else if (cache_zoom == LAST_ZOOM) {
+    } else if (cache_zoom == (MAX_ZOOM-1)) {
         dir_is_up = false;
     } else if (cache_zoom > last_cache_zoom) {
         dir_is_up = true;
@@ -748,11 +749,11 @@ static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
 
     n = 0;
     if (dir_is_up) {
-        for (idx = cache_zoom; idx <= LAST_ZOOM; idx++) zoom_lvl_tbl[n++] = idx;
+        for (idx = cache_zoom; idx <= (MAX_ZOOM-1); idx++) zoom_lvl_tbl[n++] = idx;
         for (idx = cache_zoom-1; idx >= 0; idx--) zoom_lvl_tbl[n++] = idx;
     } else {
         for (idx = cache_zoom; idx >= 0; idx--) zoom_lvl_tbl[n++] = idx;
-        for (idx = cache_zoom+1; idx <= LAST_ZOOM; idx++) zoom_lvl_tbl[n++] = idx;
+        for (idx = cache_zoom+1; idx <= (MAX_ZOOM-1); idx++) zoom_lvl_tbl[n++] = idx;
     }
     if (n != MAX_ZOOM) FATAL("n = %d\n",n);
 
