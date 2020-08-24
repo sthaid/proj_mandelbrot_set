@@ -420,10 +420,12 @@ void cache_file_read(int idx)
         cache[z] = ffce.cache;
         memcpy(cache[z].mbsval, ffce.mbsval, MBSVAL_BYTES);
     }
-    cache_thread_issue_request(CACHE_THREAD_REQUEST_RUN);
 
     // close file
     CLOSE(fi->file_name, fd);
+
+    // xxx comment
+    cache_param_change(fi->ctr, fi->zoom, cache_win_width, cache_win_height, true);
 }
 
 void cache_file_update(int idx, int file_type)

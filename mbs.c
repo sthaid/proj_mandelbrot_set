@@ -1,10 +1,6 @@
-// xxx try to use pane->w instead of win_width
 // xxx add support for fully cache the selected items
 // xxx use defines for autozoom
 // xxx use defines for the 300x200 dir image size
-
-// XXX use zoom and zoom_fraction
-
 
 #include <common.h>
 
@@ -170,6 +166,11 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
             sdl_pane_update(pane_cx, 0, 0, new_win_width, new_win_height);
             win_width = new_win_width;
             win_height = new_win_height;
+        }
+
+        // sanity check pane w/h vs win_width/height
+        if (pane->w != win_width || pane->h != win_height) {
+            FATAL("pane w/h=%d %d win_width/height=%d/%d\n", pane->w, pane->h, win_width, win_height);
         }
 
         // call the selected render_hndlr
@@ -366,12 +367,12 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     }
 
     // inform mandelbrot set cache of the current ctr and zoom
-    cache_param_change(ctr, zoom, win_width, win_height, debug_force_cache_thread_run);
+    cache_param_change(ctr, zoom, pane->w, pane->h, debug_force_cache_thread_run);
     debug_force_cache_thread_run = false;
 
     // get the cached mandelbrot set values; and
     // convert them to pixel color values
-    cache_get_mbsval(mbsval, win_width, win_height);
+    cache_get_mbsval(mbsval, pane->w, pane->h);
     for (pixel_y = 0; pixel_y < pane->h; pixel_y++) {
         for (pixel_x = 0; pixel_x < pane->w; pixel_x++) {
             pixels[idx] = color_lut[mbsval[idx]];
@@ -588,7 +589,7 @@ static void display_info_proc(rect_t *pane, unsigned long update_intvl_ms)
     int  phase_inprog, zoom_lvl_inprog;
 
     // print info to line[] array
-    sprintf(line[n++], "Window: %d %d", win_width, win_height);
+    sprintf(line[n++], "Window: %d %d", pane->w, pane->h);
     sprintf(line[n++], "Zoom:   %0.2f", ZOOM_TOTAL);
     sprintf(line[n++], "Color:  %d %d", wavelen_start, wavelen_scale);   
     cache_status(&phase_inprog, &zoom_lvl_inprog);
@@ -847,7 +848,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         sdl_render_line(pane, x+1, 0, x+1, pane->h-1, BLACK);
     }
     for (i = 1; i <= max_file_info-1; i++) {
-        y = (i / (pane->w/300)) * 200 + y_top;   // XXX this needs recoding
+        y = (i / (pane->w/300)) * 200 + y_top;
         if (y+1 < 0 || y-2 > pane->h-1) {
             continue;
         }
