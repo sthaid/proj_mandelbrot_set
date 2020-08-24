@@ -128,7 +128,7 @@ static void cache_spiral_get_next(spiral_t *s, int *x, int *y);
 void cache_init(double pixel_size_at_zoom0)
 {
     pthread_t id;
-    int       z;  // xxx rename to z
+    int       z;
 
     cache_spiral_init(&cache_initial_spiral, CACHE_WIDTH/2, CACHE_HEIGHT/2);
 
@@ -171,7 +171,7 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
     // stop the cache_thread
     cache_thread_issue_request(CACHE_THREAD_REQUEST_STOP);
 
-    // if either window dimension has increased then   xxx or just changed
+    // if either window dimension has increased then
     // all of the spirals need to be reset; also
     // reset the spirals when the force flag is set
     if (win_width > cache_win_width || win_height > cache_win_height || force) {
@@ -511,7 +511,6 @@ static void cache_adjust_mbsval_ctr(cache_t *cp)
             continue;
         }
 
-        // xxx further optimize, to not do this memset
         memset(&(*new_mbsval)[new_y][0], 0xff, CACHE_WIDTH*2);
         if (delta_x <= 0) {
             memcpy(&(*new_mbsval)[new_y][0],

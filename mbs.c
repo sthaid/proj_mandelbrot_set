@@ -1,5 +1,3 @@
-// xxx add support for fully cache the selected items
-// xxx use defines for autozoom
 // xxx use defines for the 300x200 dir image size
 
 #include <common.h>
@@ -296,17 +294,23 @@ static void display_alert(rect_t *pane)
 
 // - - - - - - - - -  PANE_HNDLR : MBS   - - - - - - - - - - - - - - - -
 
+#define AUTO_ZOOM_OFF     0
+#define AUTO_ZOOM_FORWARD 1
+#define AUTO_ZOOM_REVERSE 2
+
 #define ZOOM_TOTAL (zoom + zoom_fraction)
 
 static int          wavelen_start                = WAVELEN_START_DEFAULT;
 static int          wavelen_scale                = WAVELEN_SCALE_DEFAULT;
-static int          auto_zoom                    = 0;
-static int          auto_zoom_last               = 1;            //xxx needs defines
-static complex      ctr                          = INITIAL_CTR;  // xxx rename 
-static int          zoom                         = 0;            // xxx rename
+static int          auto_zoom                    = AUTO_ZOOM_OFF;
+static int          auto_zoom_last               = AUTO_ZOOM_FORWARD;
+static complex      ctr                          = INITIAL_CTR;
+static int          zoom                         = 0;
 static double       zoom_fraction                = 0;
 static bool         display_info                 = true;
 static bool         debug_force_cache_thread_run = false;
+static char         display_file_name[100]       = "";
+static complex      display_file_ctr             = 0;
 static unsigned int color_lut[65536];
 
 static void init_hndlr_mbs(void)
@@ -356,13 +360,10 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     }
 
     // if auto_zoom is enabled then increment or decrement the zoom until limit is reached
-    if (auto_zoom != 0) {
-        zoom_step(auto_zoom == 1);
-        if (ZOOM_TOTAL == 0) {
-            auto_zoom = 0;
-        }
-        if (ZOOM_TOTAL == (MAX_ZOOM-1)) {
-            auto_zoom = 0;
+    if (auto_zoom != AUTO_ZOOM_OFF) {
+        zoom_step(auto_zoom == AUTO_ZOOM_FORWARD);
+        if (ZOOM_TOTAL == 0 || ZOOM_TOTAL == (MAX_ZOOM-1)) {
+            auto_zoom = AUTO_ZOOM_OFF;
         }
     }
 
@@ -400,6 +401,7 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
         display_info_proc(pane, update_intvl_ms);
     }
 
+#if 0
     // when debug_enabled display a squae in the center of the pane;
     // the purpose is to be able to check that the screen's pixels are square
     // (if the display settings aspect ratio doesn't match the physical screen
@@ -408,6 +410,7 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
         rect_t loc = {pane->w/2-100, pane->h/2-100, 200, 200};
         sdl_render_rect(pane, &loc, 1, WHITE);
     }
+#endif
 
     // register for events
     sdl_register_event(pane, pane, SDL_EVENT_CENTER, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
@@ -500,14 +503,14 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
     // --- AUTO ZOOM ---
     case 'a':
         // xxx comment
-        if (auto_zoom != 0) {
+        if (auto_zoom != AUTO_ZOOM_OFF) {
             auto_zoom_last = auto_zoom;
-            auto_zoom = 0;
+            auto_zoom = AUTO_ZOOM_OFF;
         } else {
             if (ZOOM_TOTAL == 0) {
-                auto_zoom = 1;
+                auto_zoom = AUTO_ZOOM_FORWARD;
             } else if (ZOOM_TOTAL == (MAX_ZOOM-1)) {
-                auto_zoom = 2;
+                auto_zoom = AUTO_ZOOM_REVERSE;
             } else {
                 auto_zoom = auto_zoom_last;
             }
@@ -515,14 +518,46 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
         break;
     case 'A': 
         // flip dir of autozoom
-        if (auto_zoom == 1) {
-            auto_zoom = 2;
-        } else if (auto_zoom == 2) {
-            auto_zoom = 1;
+        if (auto_zoom == AUTO_ZOOM_FORWARD) {
+            auto_zoom = AUTO_ZOOM_REVERSE;
+        } else if (auto_zoom == AUTO_ZOOM_REVERSE) {
+            auto_zoom = AUTO_ZOOM_FORWARD;
         } else {
-            auto_zoom_last = (auto_zoom_last == 1 ? 2 : 1);
+            auto_zoom_last = (auto_zoom_last == AUTO_ZOOM_FORWARD ? AUTO_ZOOM_REVERSE : AUTO_ZOOM_FORWARD);
         }
         break;
+
+    // --- SELECT FILE ---
+    case SDL_EVENT_KEY_PGUP: 
+    case SDL_EVENT_KEY_PGDN: {
+        static int idx = -1;
+        static int last_display_select_count;
+
+        if (display_select_count != last_display_select_count) {
+            cache_file_garbage_collect();
+            last_display_select_count = display_select_count;
+        }
+
+        idx = idx + (event->event_id == SDL_EVENT_KEY_PGUP ? -1 : 1);
+        if (idx < 0) {
+            idx = max_file_info-1;
+        } else if (idx >= max_file_info) {
+            idx = 0;
+        }
+
+        cache_file_read(idx);
+
+        ctr           = file_info[idx]->ctr;
+        zoom          = file_info[idx]->zoom;
+        zoom_fraction = file_info[idx]->zoom_fraction;
+        wavelen_start = file_info[idx]->wavelen_start;
+        wavelen_scale = file_info[idx]->wavelen_scale;
+
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+
+        strcpy(display_file_name, file_info[idx]->file_name);
+        display_file_ctr = file_info[idx]->ctr;
+        break; }
     }
 
     return rc;
@@ -590,16 +625,23 @@ static void display_info_proc(rect_t *pane, unsigned long update_intvl_ms)
 
     // print info to line[] array
     sprintf(line[n++], "Window: %d %d", pane->w, pane->h);
+    sprintf(line[n++], "Ctr-A:  %+0.8f", creal(ctr));
+    sprintf(line[n++], "Ctr-B:  %+0.8f", cimag(ctr));
     sprintf(line[n++], "Zoom:   %0.2f", ZOOM_TOTAL);
     sprintf(line[n++], "Color:  %d %d", wavelen_start, wavelen_scale);   
-    cache_status(&phase_inprog, &zoom_lvl_inprog);
-    if (phase_inprog == 0) {
-        sprintf(line[n++], "Cache:  Idle");
-    } else {
-        sprintf(line[n++], "Cache:  Phase%d Zoom=%d", phase_inprog, zoom_lvl_inprog);
+    if (display_file_ctr == ctr) {
+        sprintf(line[n++], "File:   %s", display_file_name);
     }
-    sprintf(line[n++], "Intvl:  %ld ms", update_intvl_ms);
-    sprintf(line[n++], "Debug:  %s", debug_enabled ? "True" : "False");
+    if (debug_enabled) {
+        sprintf(line[n++], "Debug:  %s", debug_enabled ? "True" : "False");
+        sprintf(line[n++], "Intvl:  %ld ms", update_intvl_ms);
+        cache_status(&phase_inprog, &zoom_lvl_inprog);
+        if (phase_inprog == 0) {
+            sprintf(line[n++], "Cache:  Idle");
+        } else {
+            sprintf(line[n++], "Cache:  Phase%d Zoom=%d", phase_inprog, zoom_lvl_inprog);
+        }
+    }
 
     // determine each line_len and the max_len
     for (i = 0; i < n; i++) {
@@ -838,7 +880,6 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     }
 
     // separate the directory images with black lines
-    // xxx check that this is working in full scrn
     int i;
     for (i = 1; i < (pane->w/300); i++) {
         x = i * 300;
@@ -914,6 +955,10 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         wavelen_scale = file_info[idx]->wavelen_scale;
 
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
+
+        strcpy(display_file_name, file_info[idx]->file_name);
+        display_file_ctr = file_info[idx]->ctr;
+
         display_select = DISPLAY_SELECT_MBS;
         display_select_count++;
         break;
