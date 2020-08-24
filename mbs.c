@@ -865,9 +865,13 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // display the file number
-        sdl_render_printf(pane, x+(300/2-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
+        sdl_render_printf(pane, x+(300/3-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
             "%c%c%c%c", 
             fi->file_name[4], fi->file_name[5], fi->file_name[6], fi->file_name[7]);
+
+        // display the file zoom  
+        sdl_render_printf(pane, x+(300*2/3-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
+            "%0.1f", fi->zoom+fi->zoom_fraction);
 
         // display file type
         sdl_render_printf(pane, x+300-COL2X(1,20), y+0, 20, WHITE, BLACK,
