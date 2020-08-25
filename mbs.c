@@ -310,6 +310,7 @@ static double       zoom_fraction                = 0;
 static bool         display_info                 = true;
 static bool         debug_force_cache_thread_run = false;
 static char         display_file_name[100]       = "";
+static char         display_file_type            = -1; 
 static complex      display_file_ctr             = 0;
 static unsigned int color_lut[65536];
 
@@ -556,6 +557,7 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
 
         strcpy(display_file_name, file_info[idx]->file_name);
+        display_file_type = file_info[idx]->file_type;
         display_file_ctr = file_info[idx]->ctr;
         break; }
     }
@@ -631,6 +633,11 @@ static void display_info_proc(rect_t *pane, unsigned long update_intvl_ms)
     sprintf(line[n++], "Color:  %d %d", wavelen_start, wavelen_scale);   
     if (display_file_ctr == ctr) {
         sprintf(line[n++], "File:   %s", display_file_name);
+        sprintf(line[n++], "Cache:  %s", 
+                (display_file_type == 0 ? "none"   :
+                 display_file_type == 1 ? "single" :
+                 display_file_type == 2 ? "full"   :
+                                          "????"));
     }
     if (debug_enabled) {
         sprintf(line[n++], "Debug:  %s", debug_enabled ? "True" : "False");
