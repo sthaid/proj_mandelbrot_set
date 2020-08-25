@@ -3,9 +3,9 @@ TARGETS = mbs
 CC = gcc
 OUTPUT_OPTION=-MMD -MP -o $@
 CFLAGS = -Wall -g -O2 -Iutil -I.
-#CFLAGS = -Wall -g     -Iutil -I.
 
 util/util_sdl.o: CFLAGS += $(shell sdl2-config --cflags)
+#util/util_sdl.o: CFLAGS += -DENABLE_UTIL_SDL_BUTTON_SOUND
 
 SRC_MBS = mbs.c \
           eval.c \
@@ -24,7 +24,7 @@ DEP = $(SRC_MBS:.c=.d)
 all: $(TARGETS)
 
 mbs: $(SRC_MBS:.c=.o)
-	$(CC) -lpthread -lm -ljpeg -lpng -lSDL2 -lSDL2_ttf -lSDL2_mixer \
+	$(CC) -lpthread -lm -ljpeg -lpng -lSDL2 -lSDL2_ttf \
               -o $@ $(SRC_MBS:.c=.o)
 
 -include $(DEP)

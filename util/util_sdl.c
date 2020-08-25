@@ -66,7 +66,9 @@ static int32_t          sdl_win_height;
 static bool             sdl_win_minimized;
 static bool             sdl_program_quit;
 
+#ifdef ENABLE_UTIL_SDL_BUTTON_SOUND
 static Mix_Chunk      * sdl_button_sound;
+#endif
 
 static sdl_font_t       sdl_font[MAX_FONT_PTSIZE];
 static char           * sdl_font_path;
@@ -168,7 +170,7 @@ int32_t sdl_init(int32_t *w, int32_t *h, bool resizeable, bool swap_white_black)
     *w = sdl_win_width;
     *h = sdl_win_height;
 
-#if 0  // XXX causing crash
+#ifdef ENABLE_UTIL_SDL_BUTTON_SOUND
     // init button_sound
     if (Mix_OpenAudio( 22050, MIX_DEFAULT_FORMAT, 2, 4096) < 0) {
         WARN("Mix_OpenAudio failed\n");
@@ -259,10 +261,12 @@ static void exit_handler(void)
 {
     int32_t i;
     
+#ifdef ENABLE_UTIL_SDL_BUTTON_SOUND
     if (sdl_button_sound) {
         Mix_FreeChunk(sdl_button_sound);
         Mix_CloseAudio();
     }
+#endif
 
     for (i = 0; i < MAX_FONT_PTSIZE; i++) {
         if (sdl_font[i].font != NULL) {
@@ -1169,9 +1173,11 @@ void sdl_push_event(sdl_event_t *ev)
 
 void sdl_play_event_sound(void)   
 {
+#ifdef ENABLE_UTIL_SDL_BUTTON_SOUND
     if (sdl_button_sound) {
         Mix_PlayChannel(-1, sdl_button_sound, 0);
     }
+#endif
 }
 
 // -----------------  RENDER TEXT  -------------------------------------- 

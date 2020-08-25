@@ -1,4 +1,112 @@
-BEGIN
+--- WHAT IS THE MANDELBROT SET ---
+
+Complex number 'C' is in the Mandelbrot set if the following formula, when iterated starting 
+from Z=0 does not diverge.
+
+    Z(n+1) = Z(n)^2 + C
+
+A few examples, with the imaginary part of C equal to 0.
+
+    C=0.0 : Z=0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0   ...
+    C=0.1 : Z=0.0  0.1  0.1  0.1  0.1  0.1  0.1  0.1  0.1  0.1  0.1  0.1  0.1  0.1  0.1   ...
+    C=0.2 : Z=0.0  0.2  0.2  0.3  0.3  0.3  0.3  0.3  0.3  0.3  0.3  0.3  0.3  0.3  0.3   ...
+    C=0.3 : Z=0.0  0.3  0.4  0.5  0.5  0.6  0.6  0.7  0.7  0.9  1.0  1.4  2.2  
+    C=0.4 : Z=0.0  0.4  0.6  0.7  0.9  1.2  1.9  4.0  
+    C=0.5 : Z=0.0  0.5  0.8  1.1  1.6  3.2  
+    C=0.6 : Z=0.0  0.6  1.0  1.5  2.9  
+    C=0.7 : Z=0.0  0.7  1.2  2.1  
+
+C values 0.0, 0.1, 0.2 are in the Mandelbrot Set. The values of C >= 0.3 are not in the set.
+
+This program associates display pixels with the complex number C. The horizontal axis is the real
+part of C, and the vertical is the complex part. 
+
+A pixel is Black if the C is in the Mandelbrot Set. Otherwise the pixel color is chosen based on
+how many iterations it takes to determine that the seqence of Z values has diverged. Z has diverged
+when it's magnitude is >= 2.
+
+--- GETTING STARTED ---
+
+Building the program (using Linux):
+- git clone https://github.com/sthaid/proj_mandelbrot_set.git
+- install development packages: SDL2-devel SDL2_ttf-devel libpng-devel libjpeg-turbo-devel
+- make
+
+Run the program './mbs'. 
+- pan by clicking and dragging 
+- zoom using the mouse wheel
+- PgDn cycles through saved places
+- 'i' disables the info display
+- ctrl-p creates a jpg screenshot
+
+--- PROGRAM OVERVIEW ---
+
+xxx describe the capabilities in general xxx
+- pan and zoom
+- caching results
+- color lut
+- saved places
+
+the displays
+- mbs
+- help
+- color lut
+- saved places directory
+
+controls common to all displays
+
+q
+f
+h
+c
+d
+ESC
+
+-- CONTROLS FOR THE MANDELBROT SET DISPLAY ---
+
+r
+R
+i
+s
+arrows
+left-click-drag
+right-click
++/=  -  wheel  z
+a  A
+PgDn PgUp
+i
+
+--- CONTROLS FOR THE HELP DISPLAY ---
+
+scroll ctrls - wheel up/down arrows ...
+
+--- CONTROLS FOR THE COLOR LOOKUP TABLE DISPLAY ---
+
+R
+up/dn
+left/right
+
+--- CONTROLS FOR THE SAVED PLACES DIRECTORY DISPLAY ---
+
+scroll ctrls - mouse wheel, up/dn arrows ...
+left click - choose saved place and go to Mandelbrot Set Display
+right click - select entry   (red box)
+s - select all
+S - deselect all
+Delete - delete selected places
+0 -
+1 - 
+2 -
+
+cache dir files.
+title line
+
+
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+
 --- GENERAL ---
 h   help, h or <esc> to exit
 q   quit
