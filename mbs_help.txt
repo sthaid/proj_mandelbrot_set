@@ -1,7 +1,9 @@
---- WHAT IS THE MANDELBROT SET ---
+===================================
+WHAT IS THE MANDELBROT SET
+===================================
 
 Complex number 'C' is in the Mandelbrot set if the following formula, when iterated starting 
-from Z=0 does not diverge.
+from Z=0, does not diverge.
 
     Z(n+1) = Z(n)^2 + C
 
@@ -22,12 +24,14 @@ This program associates display pixels with the complex number C. The horizontal
 part of C, and the vertical is the complex part. 
 
 A pixel is Black if the C is in the Mandelbrot Set. Otherwise the pixel color is chosen based on
-how many iterations it takes to determine that the seqence of Z values has diverged. Z has diverged
+how many iterations it takes to determine that the sequence of Z values has diverged. Z has diverged
 when it's magnitude is >= 2.
 
---- GETTING STARTED ---
+===================================
+GETTING STARTED
+===================================
 
-Building the program (using Linux):
+Building the program (must use Linux):
 - git clone https://github.com/sthaid/proj_mandelbrot_set.git
 - install development packages: SDL2-devel SDL2_ttf-devel libpng-devel libjpeg-turbo-devel
 - make
@@ -37,10 +41,13 @@ Run the program './mbs'.
 - zoom using the mouse wheel
 - PgDn cycles through saved places
 - 'i' disables the info display
-- ctrl-p creates a jpg screenshot
+- ^p creates a jpg screenshot
 
---- PROGRAM OVERVIEW ---
+===================================
+PROGRAM OVERVIEW
+===================================
 
+XXX  TBD
 xxx describe the capabilities in general xxx
 - pan and zoom
 - caching results
@@ -53,126 +60,66 @@ the displays
 - color lut
 - saved places directory
 
-controls common to all displays
+===================================
+-- CONTROLS COMMON TO ALL DISPLAYS 
+===================================
 
-q
-f
-h
-c
-d
-ESC
+h:   display help
+c:   display color lookup table
+d:   display directory of save places
+ESC: return to the mandelbrot set display
+^p:  create jpg screenshot
+f:   toggle full screen
+q:   quit
 
--- CONTROLS FOR THE MANDELBROT SET DISPLAY ---
+===================================
+-- CONTROLS FOR THE MANDELBROT SET DISPLAY
+===================================
 
-r
-R
-i
-s
-arrows
-left-click-drag
-right-click
-+/=  -  wheel  z
-a  A
-PgDn PgUp
-i
+left-click-drag:   pan
+right-click:       center on mouse position
++/= - mouse-wheel: zoom in/out
+a A:               autozoom and reverse autozoom direction
+PgDn PgUp:         view saved locations
+up/down arrow:     adjust color map scale
+left/right arrow:  adjust color map start wavelength
+s:                 save the current location
+i;                 toggle display of info at upper left of mandelbrot set display
+r:                 reset center and zoom to default
+R:                 reset color lookup table params to default
 
---- CONTROLS FOR THE HELP DISPLAY ---
+===================================
+CONTROLS FOR THE HELP DISPLAY
+===================================
 
-scroll ctrls - wheel up/down arrows ...
+scroll - mouse-wheel, up/down arrows
 
---- CONTROLS FOR THE COLOR LOOKUP TABLE DISPLAY ---
+===================================
+CONTROLS FOR THE COLOR LOOKUP TABLE DISPLAY
+===================================
 
-R
-up/dn
-left/right
+up/down arrow:     adjust color map scale
+left/right arrow:  adjust color map start wavelength
+R:                 reset color lookup table params to default
 
---- CONTROLS FOR THE SAVED PLACES DIRECTORY DISPLAY ---
+===================================
+CONTROLS FOR THE SAVED PLACES DIRECTORY DISPLAY
+===================================
 
-scroll ctrls - mouse wheel, up/dn arrows ...
-left click - choose saved place and go to Mandelbrot Set Display
-right click - select entry   (red box)
-s - select all
-S - deselect all
-Delete - delete selected places
-0 -
-1 - 
-2 -
+scroll:       mouse-wheel, up/down arrows
+left-click:   choose saved place
+right click:  select item, red box indicates selected item
+s:            select all
+S:            deselect all
+Delete:       delete selected
+0:            convert selected items to cache zero zoom levels
+1:            convert selected items to cache one zoom level
+2:            convert selected items to cache all zoom levels
 
-cache dir files.
-title line
+The cache directory files are displayed in a grid. 
+The title line indicates, from left to right:
+- selected: red box
+- file-id:  4 digit number
+- zoom:     magnification = 2^zoom
+- file_type: 0,1,2 - see description above
 
-
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-
---- GENERAL ---
-h   help, h or <esc> to exit
-q   quit
-i   display info toggle
-c   display color map, c or <esc> to exit
-r   reset pan and zoom
-R   reset color map
-f   full screen toggle
-F1  enable debug prints
-F2  force cache thread to start
-
---- PAN ---
-mouse-left-click-and-drag  pan
-mouse-right-click          center on mouse position
-
---- ZOOM ---
-+ or =       zoom in
--            zoom out
-mouse-wheel  zoom in or out
-z            zoom all the way in or out
-a            auto zoom toggle
-A            auto zoom direction toggle
-
---- COLOR MAP CONTROLS ---
-up-arrow and down-arrow     adjust color map scale
-left-arrow and right-arrow  adjust color map start wavelength
-
---- READ AND WRITE FILES ---
-0 - 9          read file mbs_N.dat
-ctrl0 - ctrl9  write file mbs_N.dat, caching must be complete
-alt0 - alt9    write file mbs_N.dat, caching need not be complete
-
-xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
-
-END
