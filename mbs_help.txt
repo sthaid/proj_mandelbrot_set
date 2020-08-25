@@ -1,3 +1,4 @@
+BEGIN
 --- GENERAL ---
 h   help, h or <esc> to exit
 q   quit
@@ -29,3 +30,41 @@ left-arrow and right-arrow  adjust color map start wavelength
 0 - 9          read file mbs_N.dat
 ctrl0 - ctrl9  write file mbs_N.dat, caching must be complete
 alt0 - alt9    write file mbs_N.dat, caching need not be complete
+
+xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxx   xxxxxxxxxxxxxxxxxxxx
+
+END

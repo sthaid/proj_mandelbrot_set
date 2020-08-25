@@ -702,26 +702,101 @@ static void save_file(rect_t *pane)
 
 // - - - - - - - - -  PANE_HNDLR : HELP  - - - - - - - - - - - - - - - -
 
+static int y_top_help;
+static int max_help_row;
+
 static void render_hndlr_help(pane_cx_t *pane_cx)
 {
     FILE *fp;
     char s[200];
-    int row, len;
+    int row, len, y;
     rect_t * pane = &pane_cx->pane;
+    char *line[1000];
 
-    if ((fp = fopen("mbs_help.txt", "r")) != NULL) {
+    static bool first_call = true;
+    static int last_display_select_count;
+
+    #define SDL_EVENT_SCROLL_WHEEL (SDL_EVENT_USER_DEFINED + 0)
+
+    // read mbs_help.txt, on first call
+    if (first_call) {
+        if ((fp = fopen("mbs_help.txt", "r")) == NULL) {
+            FATAL("failed open mbs_help.txt, %s\n", strerror(errno));
+        }
         for (row = 0; fgets(s,sizeof(s),fp); row++) {
             len = strlen(s);
-            if (len > 0 && s[len-1] == '\n') s[len-1] = '\0';
-            sdl_render_printf(pane, 0, ROW2Y(row,20), 20, WHITE, BLACK, "%s", s);
+            if (len > 0 && s[len-1] == '\n') {
+                s[len-1] = '\0';
+                len--;
+            }
+            line[row] = malloc(len+1);
+            strcpy(line[row], s);
         }
         fclose(fp);
+        max_help_row = row;
+        first_call = false;
     }
+
+    // if re-entering help display then reset y_top_help to 0
+    if (display_select_count != last_display_select_count) {
+        y_top_help = 0;
+        last_display_select_count = display_select_count;
+    }
+
+    // display the help text
+    for (row = 0; row < max_help_row; row++) {
+        y = y_top_help + ROW2Y(row,20);
+        if (y <= -ROW2Y(1,20) || y >= pane->h) {
+            continue;
+        }
+        sdl_render_printf(pane, 0, y, 20, WHITE, BLACK, "%s", line[row]);
+    }
+
+    // register for mouse wheel scrool event
+    sdl_register_event(pane, pane, SDL_EVENT_SCROLL_WHEEL, SDL_EVENT_TYPE_MOUSE_WHEEL, pane_cx);
 }
 
 static int event_hndlr_help(pane_cx_t *pane_cx, sdl_event_t *event)
 {
     int rc = PANE_HANDLER_RET_NO_ACTION;
+
+    // handle events to adjust scroll position (y_top_help)
+    switch (event->event_id) {
+    case SDL_EVENT_SCROLL_WHEEL:
+    case SDL_EVENT_KEY_PGUP:
+    case SDL_EVENT_KEY_PGDN:
+    case SDL_EVENT_KEY_UP_ARROW:
+    case SDL_EVENT_KEY_DOWN_ARROW:
+    case SDL_EVENT_KEY_HOME:
+    case SDL_EVENT_KEY_END:
+        if (event->event_id == SDL_EVENT_SCROLL_WHEEL) {
+            if (event->mouse_wheel.delta_y > 0) {
+                y_top_help += 20;
+            } else if (event->mouse_wheel.delta_y < 0) {
+                y_top_help -= 20;
+            }
+        } else if (event->event_id == SDL_EVENT_KEY_PGUP) {
+            y_top_help += 600;
+        } else if (event->event_id == SDL_EVENT_KEY_PGDN) {
+            y_top_help -= 600;
+        } else if (event->event_id == SDL_EVENT_KEY_UP_ARROW) {
+            y_top_help += 20;
+        } else if (event->event_id == SDL_EVENT_KEY_DOWN_ARROW) {
+            y_top_help -= 20;
+        } else if (event->event_id == SDL_EVENT_KEY_HOME) {
+            y_top_help = 0;
+        } else if (event->event_id == SDL_EVENT_KEY_END) {
+            y_top_help = -999999999;
+        } else {
+            FATAL("unexpected event_id 0x%x\n", event->event_id);
+        }
+
+        int y_top_help_limit = (-max_help_row+10) * ROW2Y(1,20);
+        if (y_top_help < y_top_help_limit) y_top_help = y_top_help_limit;
+        if (y_top_help > 0) y_top_help = 0;
+        break;
+    }
+
     return rc;
 }
 
