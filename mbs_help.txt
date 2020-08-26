@@ -36,7 +36,7 @@ Building the program (must use Linux):
 - install development packages: SDL2-devel SDL2_ttf-devel libpng-devel libjpeg-turbo-devel
 - make
 
-Run the program './mbs'. 
+Run the program './mbs [-g WxH]'
 - pan by clicking and dragging 
 - zoom using the mouse wheel
 - PgDn cycles through saved places
@@ -47,18 +47,36 @@ Run the program './mbs'.
 PROGRAM OVERVIEW
 ===================================
 
-XXX  TBD
-xxx describe the capabilities in general xxx
-- pan and zoom
-- caching results
-- color lut
-- saved places
+This program provides the capability to explore the Mandelbrot Set.
 
-the displays
-- mbs
-- help
-- color lut
-- saved places directory
+The following capabilities are included:
+- pan and zoom, max zoom is 2^46 or approximately 10^14
+- speculative caching of results; for example, when zooming in, the
+  caching algorithm will predetermine the Mandelbrot Set values for
+  the subsequent zoom levels
+- adjustable color lookup table
+- ability to save places; the Save Places Directory is used to view
+  small images of the saved places, and to choose a saved place to 
+  view on the main display
+- ability to toggle in and out of full screen mode
+- window size is adjustable, and can also be specified when starting
+  the mbs program
+
+Their are 4 displays:
+- main display: displays the Mandelbrot Set in the entire window, the
+  info area at the top left can be disabled using the 'i' keystroke
+- help display: show this text
+- color lookup table: for locations not in the Mandelbrot Set, the color
+  lookup table is used to map the number of iterations needed to determine
+  the location is not part of the set, to a color
+- saved places directory: shows small images of the saved places, and 
+  provides controls to adjust the amount of caching that is included in the
+  saved places files (these files are in the .mbs_cache directory)
+  
+Suggestions for future improvements:
+- increase zoom range
+- improve performance, possibly multiple threads although the performance
+  will be limitted by the number of FPU per socket; or use integer math 
 
 ===================================
 -- CONTROLS COMMON TO ALL DISPLAYS 
@@ -67,7 +85,7 @@ the displays
 h:   display help
 c:   display color lookup table
 d:   display directory of save places
-ESC: return to the mandelbrot set display
+ESC: return to the Mandelbrot Set display
 ^p:  create jpg screenshot
 f:   toggle full screen
 q:   quit
@@ -84,7 +102,7 @@ PgDn PgUp:         view saved locations
 up/down arrow:     adjust color map scale
 left/right arrow:  adjust color map start wavelength
 s:                 save the current location
-i;                 toggle display of info at upper left of mandelbrot set display
+i;                 toggle display of info at upper left of Mandelbrot Set display
 r:                 reset center and zoom to default
 R:                 reset color lookup table params to default
 
@@ -116,10 +134,15 @@ Delete:       delete selected
 1:            convert selected items to cache one zoom level
 2:            convert selected items to cache all zoom levels
 
-The cache directory files are displayed in a grid. 
+The save places files are displayed in a grid. 
 The title line indicates, from left to right:
-- selected: red box
-- file-id:  4 digit number
-- zoom:     magnification = 2^zoom
+- selected:  red box
+- file-id:   4 digit number 
+- zoom:      magnification = 2^zoom
 - file_type: 0,1,2 - see description above
 
+The save places files are stored in the .mbs_cache directory.
+The size of each file depends on the file_type:
+- 0: 255K
+- 1: 7.9M
+- 2: 359M
