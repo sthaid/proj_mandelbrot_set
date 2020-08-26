@@ -312,6 +312,7 @@ static bool         debug_force_cache_thread_run = false;
 static char         display_file_name[100]       = "";
 static char         display_file_type            = -1; 
 static complex      display_file_ctr             = 0;
+static int          display_file_idx             = -1;
 static unsigned int color_lut[65536];
 
 static void init_hndlr_mbs(void)
@@ -530,7 +531,9 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
 
     // --- SELECT FILE ---
     case SDL_EVENT_KEY_PGUP: 
-    case SDL_EVENT_KEY_PGDN: {
+    case SDL_EVENT_KEY_PGDN:
+    case SDL_EVENT_KEY_HOME:
+    case SDL_EVENT_KEY_END: {
         static int idx = -1;
         static int last_display_select_count;
 
@@ -539,7 +542,18 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
             last_display_select_count = display_select_count;
         }
 
-        idx = idx + (event->event_id == SDL_EVENT_KEY_PGUP ? -1 : 1);
+        if (event->event_id == SDL_EVENT_KEY_HOME) {
+            idx = 0;
+        } else if (event->event_id == SDL_EVENT_KEY_END) {
+            idx = max_file_info-1;
+        } else {
+            if (display_file_idx != -1) {
+                idx = display_file_idx;
+                display_file_idx = -1;
+            }
+            idx = idx + (event->event_id == SDL_EVENT_KEY_PGUP ? -1 : 1);
+        }
+
         if (idx < 0) {
             idx = max_file_info-1;
         } else if (idx >= max_file_info) {
@@ -873,6 +887,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
 {
     rect_t * pane = &pane_cx->pane;
     int      idx, x, y;
+    int      cols = (pane->w/300 == 0 ? 1 : pane->w/300);
 
     static texture_t texture;
     static int       last_display_select_count;
@@ -916,8 +931,8 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // determine location of upper left
-        x = (idx % (pane->w/300)) * 300;
-        y = (idx / (pane->w/300)) * 200 + y_top;
+        x = (idx % cols) * 300;
+        y = (idx / cols) * 200 + y_top;
 
         // continue if location is outside of the pane
         if (y <= -200 || y >= pane->h) {
@@ -967,7 +982,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
 
     // separate the directory images with black lines
     int i;
-    for (i = 1; i < (pane->w/300); i++) {
+    for (i = 1; i < cols; i++) {
         x = i * 300;
         sdl_render_line(pane, x-2, 0, x-2, pane->h-1, BLACK);
         sdl_render_line(pane, x-1, 0, x-1, pane->h-1, BLACK);
@@ -975,7 +990,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         sdl_render_line(pane, x+1, 0, x+1, pane->h-1, BLACK);
     }
     for (i = 1; i <= max_file_info-1; i++) {
-        y = (i / (pane->w/300)) * 200 + y_top;
+        y = (i / cols) * 200 + y_top;
         if (y+1 < 0 || y-2 > pane->h-1) {
             continue;
         }
@@ -991,8 +1006,10 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
 
 static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 {
-    int rc = PANE_HANDLER_RET_DISPLAY_REDRAW;
-    int idx;
+    rect_t * pane = &pane_cx->pane;
+    int      cols = (pane->w/300 == 0 ? 1 : pane->w/300);
+    int      rc   = PANE_HANDLER_RET_DISPLAY_REDRAW;
+    int      idx;
 
     switch (event->event_id) {
     case SDL_EVENT_SCROLL_WHEEL:
@@ -1019,12 +1036,12 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         } else if (event->event_id == SDL_EVENT_KEY_HOME) {
             y_top = 0;
         } else if (event->event_id == SDL_EVENT_KEY_END) {
-            y_top = -((max_file_info - 1) / 4 + 1) * 200 + 600;
+            y_top = -((max_file_info - 1) / cols + 1) * 200 + 600;
         } else {
             FATAL("unexpected event_id 0x%x\n", event->event_id);
         }
 
-        int y_top_limit = -((max_file_info - 1) / 4 + 1) * 200 + 600;
+        int y_top_limit = -((max_file_info - 1) / cols + 1) * 200 + 600;
         if (y_top < y_top_limit) y_top = y_top_limit;
         if (y_top > 0) y_top = 0;
         break;
@@ -1043,7 +1060,9 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         init_color_lut(wavelen_start, wavelen_scale, color_lut);
 
         strcpy(display_file_name, file_info[idx]->file_name);
-        display_file_ctr = file_info[idx]->ctr;
+        display_file_type = file_info[idx]->file_type;
+        display_file_ctr  = file_info[idx]->ctr;
+        display_file_idx  = idx;
 
         display_select = DISPLAY_SELECT_MBS;
         display_select_count++;
