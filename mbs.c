@@ -45,7 +45,6 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 static void set_alert(int color, char *fmt, ...) __attribute__ ((format (printf, 2, 3)));
 static void display_alert(rect_t *pane);
 
-static void init_hndlr_mbs(void);
 static void render_hndlr_mbs(pane_cx_t *pane_cx);
 static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event);
 static void zoom_step(bool dir_is_incr);
@@ -133,7 +132,7 @@ typedef struct {
 
 static bool    full_screen          = false;
 static int     display_select       = DISPLAY_SELECT_MBS;
-static int     display_select_count = 0;
+static int     display_select_count = 1;
 static alert_t alert                = {.expire_us = 0};
 
 static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_event_t * event)
@@ -146,7 +145,6 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
         INFO("PANE x,y,w,h  %d %d %d %d\n", pane->x, pane->y, pane->w, pane->h);
-        init_hndlr_mbs();
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -316,12 +314,6 @@ static complex      display_file_ctr             = 0;
 static int          display_file_idx             = -1;
 static unsigned int color_lut[65536];
 
-static void init_hndlr_mbs(void)
-{
-    //XXX probably can do away with this routine
-    init_color_lut(wavelen_start, wavelen_scale, color_lut);
-}
-
 static void render_hndlr_mbs(pane_cx_t *pane_cx)
 {
     int            idx = 0, pixel_x, pixel_y;
@@ -333,10 +325,18 @@ static void render_hndlr_mbs(pane_cx_t *pane_cx)
     static unsigned int   *pixels;
     static unsigned short *mbsval;
     static unsigned long   last_update_time_us;
+    static unsigned int    last_display_select_count;
 
     #define SDL_EVENT_CENTER   (SDL_EVENT_USER_DEFINED + 0)
     #define SDL_EVENT_PAN      (SDL_EVENT_USER_DEFINED + 1)
     #define SDL_EVENT_ZOOM     (SDL_EVENT_USER_DEFINED + 2)
+
+    // if re-entering mbs display then reset/init stuff
+    if (display_select_count != last_display_select_count) {
+        init_color_lut(wavelen_start, wavelen_scale, color_lut);
+        auto_zoom = AUTO_ZOOM_OFF;
+        last_display_select_count = display_select_count;
+    }
 
     // determine the display update interval, 
     // which may be displayed in the info area at top left
@@ -508,7 +508,6 @@ static int event_hndlr_mbs(pane_cx_t *pane_cx, sdl_event_t *event)
     // --- AUTO ZOOM ---
     case 'a':
         // start and stop auto_zoom
-        //XXX disable when entering
         if (auto_zoom != AUTO_ZOOM_OFF) {
             auto_zoom_last = auto_zoom;
             auto_zoom = AUTO_ZOOM_OFF;
