@@ -24,9 +24,6 @@
 
 #define MAX_ITER 1000
 
-#define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
-#define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
-
 #define ZOOM 2.0
 
 //

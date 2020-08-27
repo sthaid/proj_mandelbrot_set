@@ -51,9 +51,6 @@ int main(int argc, char **argv)
 
 // -----------------  PANE_HNDLR  ---------------------------------------
 
-#define PIXEL_WHITE ((255 << 0) | (255 << 8) | (255 << 16) | (255 << 24))
-#define PIXEL_BLACK ((  0 << 0) | (  0 << 8) | (  0 << 16) | (255 << 24))
-
 #define INITIAL_CTR_A       -0.75
 #define INITIAL_CTR_B       0.0
 #define INITIAL_PIXEL_SIZE  (3. / pane->w)
