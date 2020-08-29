@@ -459,7 +459,7 @@ void cache_file_update(int idx, int file_type)
     cache_file_info_t *fi = IDX_TO_FI(idx);
     int z, fd;
 
-    INFO("idx=%d fn=%s file_type=%d->%d\n", idx, fi->file_name, fi->file_type, file_type);
+    DEBUG("idx=%d fn=%s file_type=%d->%d\n", idx, fi->file_name, fi->file_type, file_type);
 
     // This routine will re-write the specified file using the requested file_type.
     // File_type:
@@ -486,7 +486,7 @@ void cache_file_update(int idx, int file_type)
     // write the desired zoom levels
     for (z = 0; z < MAX_ZOOM; z++) {
         if ((file_type == 1 && z == fi->zoom) || (file_type == 2)) {
-            INFO("- writing zoom lvl %d\n", z);
+            DEBUG("- writing zoom lvl %d\n", z);
             cache_t cache_tmp = cache[z];
             cache_tmp.mbsval = NULL;
             WRITE(fi->file_name, fd, &cache_tmp, sizeof(cache_tmp));
@@ -506,10 +506,10 @@ void cache_file_garbage_collect(void)
 
     while (idx < max_file_info) {
         if (file_info[idx]->deleted) {
-            INFO("idx %d  max_file_info %d  %p %p %p\n",
-                idx, max_file_info, 
-                file_info[0], file_info[1], file_info[2]);
-            INFO("  freeing %p\n", file_info[idx]);
+            DEBUG("idx %d  max_file_info %d  %p %p %p\n",
+                  idx, max_file_info, 
+                  file_info[0], file_info[1], file_info[2]);
+            DEBUG("  freeing %p\n", file_info[idx]);
             free(file_info[idx]);
             memmove(&file_info[idx], &file_info[idx+1], (max_file_info-1)*sizeof(void*));
             max_file_info--;
@@ -849,7 +849,7 @@ static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
     for (n = 0; n < MAX_ZOOM; n++) {
         p += sprintf(p, "%d ", zoom_lvl_tbl[n]);
     }
-    INFO("dir=%s zoom=%d last=%d - %s\n", 
+    DEBUG("dir=%s zoom=%d last=%d - %s\n", 
          (dir_is_up ? "UP" : "DOWN"),
          cache_zoom, last_cache_zoom, str);
 #endif
