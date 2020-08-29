@@ -321,10 +321,10 @@ static void cache_file_init(void)
     }
 
     // debug print file_info
-    INFO("max_file_info=%d last_file_num=%d\n", max_file_info, last_file_num);
+    DEBUG("max_file_info=%d last_file_num=%d\n", max_file_info, last_file_num);
     for (idx = 0; idx < max_file_info; idx++) {
         cache_file_info_t *fi = file_info[idx];
-        INFO("idx=%d name=%s type=%d\n", idx, fi->file_name, fi->file_type);
+        DEBUG("idx=%d name=%s type=%d\n", idx, fi->file_name, fi->file_type);
     }
 }
 

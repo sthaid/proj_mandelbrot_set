@@ -67,11 +67,14 @@ int main(int argc, char **argv)
     int requested_win_width;
     int requested_win_height;
 
+    // debug print program startup
+    INFO("program starting\n");
+
     // get and process options
     // -g NNNxNNN  : window size
     // -d          : debug mode
     while (true) {
-        char opt_char = getopt(argc, argv, "g:v");
+        char opt_char = getopt(argc, argv, "g:d");
         if (opt_char == -1) {
             break;
         }
@@ -84,6 +87,7 @@ int main(int argc, char **argv)
             break; }
         case 'd':
             debug_enabled = true;
+            DEBUG("debug_enabled = true\n");
             break;
         default:
             return 1;
@@ -96,8 +100,8 @@ int main(int argc, char **argv)
     if (sdl_init(&win_width, &win_height, true, false) < 0) {
         FATAL("sdl_init %dx%d failed\n", win_width, win_height);
     }
-    INFO("REQUESTED win_width=%d win_height=%d\n", requested_win_width, requested_win_height);
-    INFO("ACTUAL    win_width=%d win_height=%d\n", win_width, win_height);
+    DEBUG("requested win_width=%d win_height=%d\n", requested_win_width, requested_win_height);
+    DEBUG("actual    win_width=%d win_height=%d\n", win_width, win_height);
 
     // initialize the caching code
     pixel_size_at_zoom0 = 4. / win_width;
@@ -116,6 +120,7 @@ int main(int argc, char **argv)
         pane_hndlr, NULL, 0, 0, win_width, win_height, PANE_BORDER_STYLE_NONE);
 
     // done
+    INFO("program terminating\n");
     return 0;
 }
 
@@ -141,7 +146,7 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
     // ----------------------------
 
     if (request == PANE_HANDLER_REQ_INITIALIZE) {
-        INFO("PANE x,y,w,h  %d %d %d %d\n", pane->x, pane->y, pane->w, pane->h);
+        DEBUG("PANE x,y,w,h  %d %d %d %d\n", pane->x, pane->y, pane->w, pane->h);
         return PANE_HANDLER_RET_NO_ACTION;
     }
 
@@ -620,9 +625,6 @@ static void init_color_lut(int wavelen_start, int wavelen_scale, unsigned int *c
         wavelen_step  = (double)(WAVELEN_LAST-WAVELEN_FIRST) / (MBSVAL_IN_SET-1) * wavelen_scale;
         wavelen = wavelen_start;
         for (i = 0; i < MBSVAL_IN_SET; i++) {
-            if (i == MBSVAL_IN_SET-1) {
-                INFO("%d  %lf\n", i, wavelen);
-            }
             sdl_wavelen_to_rgb(wavelen, &r, &g, &b);
             color_lut[i] = PIXEL(r,g,b);
             wavelen += wavelen_step;
@@ -661,7 +663,7 @@ static void display_info_proc(rect_t *pane, unsigned long update_intvl_ms)
         if (phase_inprog == 0) {
             sprintf(line[n++], "Cache:  Idle");
         } else {
-            sprintf(line[n++], "Cache:  Phase%d Zoom=%d", phase_inprog, zoom_lvl_inprog);
+            sprintf(line[n++], "Cache:  Phase%d Z=%d", phase_inprog, zoom_lvl_inprog);
         }
     }
 
