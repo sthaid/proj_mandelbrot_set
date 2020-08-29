@@ -32,6 +32,9 @@
 #define MBSVAL_IN_SET        1000
 #define MBSVAL_NOT_COMPUTED  65535
 
+#define CACHE_WIDTH          2000
+#define CACHE_HEIGHT         2000
+
 //
 // typedefs
 //
@@ -39,7 +42,7 @@
 typedef struct {
     unsigned long magic;
     char          file_name[300];
-    int           file_type;             // 0,1,2  xxx explain
+    int           file_type;
     complex       ctr;
     int           zoom;
     double        zoom_fraction;

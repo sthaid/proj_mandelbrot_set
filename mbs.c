@@ -1,4 +1,4 @@
-// xxx use defines for the 300x200 dir image size
+// XXX use defines for the 300x200 dir image size
 
 #include <common.h>
 
@@ -80,8 +80,7 @@ int main(int argc, char **argv)
         switch (opt_char) {
         case 'g': {
             int cnt = sscanf(optarg, "%dx%d", &win_width, &win_height);
-            //xxx 2000 don't allow window to exceed cache size, either here or below
-            if (cnt != 2 || win_width < 100 || win_width > 2000 || win_height < 100 || win_height > 2000) {
+            if (cnt != 2 || win_width < 100 || win_width > CACHE_WIDTH || win_height < 100 || win_height > CACHE_HEIGHT) {
                 FATAL("-g %s invalid\n", optarg);
             }
             break; }
@@ -157,6 +156,8 @@ static int pane_hndlr(pane_cx_t * pane_cx, int request, void * init_params, sdl_
         // location within the window
         int new_win_width, new_win_height;
         sdl_get_window_size(&new_win_width, &new_win_height);
+        if (new_win_width > CACHE_WIDTH) new_win_width = CACHE_WIDTH;
+        if (new_win_height > CACHE_HEIGHT) new_win_height = CACHE_HEIGHT;
         if (new_win_width != win_width || new_win_height != win_height) {
             DEBUG("NEW WIN SIZE w=%d %d\n", new_win_width, new_win_height);
             sdl_pane_update(pane_cx, 0, 0, new_win_width, new_win_height);
@@ -1208,10 +1209,7 @@ static void thread_directory(void)
             activity_indicator = idx;
 
             // instruct the cache code to begin caching for this file
-            // xxx check the cache thread code if there is a problem 
-            //     if these are equal to the cache size
-            // xxx 1990 should be CACHE_WIDTH/HEIGHT
-            cache_param_change(file_info[idx]->ctr, file_info[idx]->zoom, 1990, 1990, true);
+            cache_param_change(file_info[idx]->ctr, file_info[idx]->zoom, CACHE_WIDTH, CACHE_HEIGHT, true);
 
             // wait for caching to complete 
             INFO("- waiting for cache complete\n");

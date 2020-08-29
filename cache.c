@@ -8,8 +8,6 @@
 #define CACHE_THREAD_REQUEST_RUN    1
 #define CACHE_THREAD_REQUEST_STOP   2
 
-#define CACHE_WIDTH                 2000
-#define CACHE_HEIGHT                2000
 #define MBSVAL_BYTES                (CACHE_HEIGHT*CACHE_WIDTH*2)
 
 #define MAGIC_MBS_FILE              0x5555555500000002
@@ -694,10 +692,16 @@ restart:
         mbs_calc_count     = 0;
         mbs_not_calc_count = 0;
         total_mbs_tsc      = 0;
+
         win_min_x          = CACHE_WIDTH/2  - cache_win_width/2  - 3;
         win_max_x          = CACHE_WIDTH/2  + cache_win_width/2  + 3;
         win_min_y          = CACHE_HEIGHT/2 - cache_win_height/2 - 3;
         win_max_y          = CACHE_HEIGHT/2 + cache_win_height/2 + 3;
+
+        if (win_min_x < 0) win_min_x = 0;
+        if (win_max_x > CACHE_WIDTH-1) win_max_x = CACHE_WIDTH-1;
+        if (win_min_y < 0) win_min_y = 0;
+        if (win_max_y > CACHE_HEIGHT-1) win_max_y = CACHE_HEIGHT-1;
 
         // the zoom_lvl_tbl is an array of zoom levels in the order that the
         // cache thread will be processing them; for example suppose the
@@ -758,7 +762,6 @@ restart:
                     }
                 }
 
-                // XXX check the idx here
                 COMPUTE_MBSVAL(idx_a,idx_b,cp);
             }
 
