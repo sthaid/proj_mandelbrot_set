@@ -1,5 +1,3 @@
-// XXX use defines for the 300x200 dir image size
-
 #include <common.h>
 
 #include <util_sdl.h>
@@ -697,8 +695,8 @@ static void save_file(rect_t *pane)
     h      = pane->h *  pow(2, -zoom_fraction);
     x      = 0;
     y      = 0;
-    y_step = h / 200.;
-    x_step = w / 300.;
+    y_step = (double)h / DIR_PIXELS_HEIGHT;
+    x_step = (double)w / DIR_PIXELS_WIDTH;
     idx    = 0;
 
     // alloc memory for mbs values and pixels
@@ -710,9 +708,9 @@ static void save_file(rect_t *pane)
 
     // create a reduced size (300x200) array of pixels, 
     // this will be the directory image
-    for (y_idx = 0; y_idx < 200; y_idx++) {
+    for (y_idx = 0; y_idx < DIR_PIXELS_HEIGHT; y_idx++) {
         x = 0;
-        for (x_idx = 0; x_idx < 300; x_idx++) {
+        for (x_idx = 0; x_idx < DIR_PIXELS_WIDTH; x_idx++) {
             pixels[idx] = color_lut[
                              mbsval[(int)nearbyint(y) * w  +  (int)nearbyint(x)]
                                         ];
@@ -905,7 +903,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
 {
     rect_t * pane = &pane_cx->pane;
     int      idx, x, y;
-    int      cols = (pane->w/300 == 0 ? 1 : pane->w/300);
+    int      cols = (pane->w/DIR_PIXELS_WIDTH == 0 ? 1 : pane->w/DIR_PIXELS_WIDTH);
 
     static texture_t texture;
     static int       last_display_select_count;
@@ -916,7 +914,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
 
     // one time init
     if (texture == NULL) {
-        texture = sdl_create_texture(300, 200);
+        texture = sdl_create_texture(DIR_PIXELS_WIDTH, DIR_PIXELS_HEIGHT);
     }
 
     // initialize when this display has been selected, or
@@ -956,16 +954,16 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // determine location of upper left
-        x = (idx % cols) * 300;
-        y = (idx / cols) * 200 + y_top;
+        x = (idx % cols) * DIR_PIXELS_WIDTH;
+        y = (idx / cols) * DIR_PIXELS_HEIGHT + y_top;
 
         // continue if location is outside of the pane
-        if (y <= -200 || y >= pane->h) {
+        if (y <= -DIR_PIXELS_HEIGHT || y >= pane->h) {
             continue;
         }
 
         // display the file's directory image
-        sdl_update_texture(texture, (void*)fi->dir_pixels, 300*BYTES_PER_PIXEL);
+        sdl_update_texture(texture, (void*)fi->dir_pixels, DIR_PIXELS_WIDTH*BYTES_PER_PIXEL);
         sdl_render_texture(pane, x, y, texture);
 
         // if the activity_indicator is active for this file then 
@@ -974,7 +972,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
             static char *ind = "|/-\\";
             static int   ind_idx;
             sdl_render_printf(pane, 
-                              x+(300/2-COL2X(1,80)/2), y+(200/2-ROW2Y(1,80)/2), 
+                              x+(DIR_PIXELS_WIDTH/2-COL2X(1,80)/2), y+(DIR_PIXELS_HEIGHT/2-ROW2Y(1,80)/2), 
                               80, WHITE, BLACK, 
                               "%c", ind[ind_idx]);
             ind_idx = (ind_idx + 1) % 4;
@@ -987,20 +985,20 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
         }
 
         // display the file number
-        sdl_render_printf(pane, x+(300/3-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
+        sdl_render_printf(pane, x+(DIR_PIXELS_WIDTH/3-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
             "%c%c%c%c", 
             fi->file_name[4], fi->file_name[5], fi->file_name[6], fi->file_name[7]);
 
         // display the file zoom  
-        sdl_render_printf(pane, x+(300*2/3-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
+        sdl_render_printf(pane, x+(DIR_PIXELS_WIDTH*2/3-COL2X(2,20)), y+0, 20, WHITE, BLACK, 
             "%0.1f", fi->zoom+fi->zoom_fraction);
 
         // display file type
-        sdl_render_printf(pane, x+300-COL2X(1,20), y+0, 20, WHITE, BLACK,
+        sdl_render_printf(pane, x+DIR_PIXELS_WIDTH-COL2X(1,20), y+0, 20, WHITE, BLACK,
             "%d", fi->file_type);
 
         // register for events for each directory image that is displayed
-        rect_t loc = {x,y,300,200};
+        rect_t loc = {x,y,DIR_PIXELS_WIDTH,DIR_PIXELS_HEIGHT};
         sdl_register_event(pane, &loc, SDL_EVENT_CHOICE + idx, SDL_EVENT_TYPE_MOUSE_CLICK, pane_cx);
         sdl_register_event(pane, &loc, SDL_EVENT_SELECT + idx, SDL_EVENT_TYPE_MOUSE_RIGHT_CLICK, pane_cx);
     }
@@ -1008,14 +1006,14 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
     // separate the directory images with black lines
     int i;
     for (i = 1; i < cols; i++) {
-        x = i * 300;
+        x = i * DIR_PIXELS_WIDTH;
         sdl_render_line(pane, x-2, 0, x-2, pane->h-1, BLACK);
         sdl_render_line(pane, x-1, 0, x-1, pane->h-1, BLACK);
         sdl_render_line(pane, x+0, 0, x+0, pane->h-1, BLACK);
         sdl_render_line(pane, x+1, 0, x+1, pane->h-1, BLACK);
     }
     for (i = 1; i <= max_file_info-1; i++) {
-        y = (i / cols) * 200 + y_top;
+        y = (i / cols) * DIR_PIXELS_HEIGHT + y_top;
         if (y+1 < 0 || y-2 > pane->h-1) {
             continue;
         }
@@ -1032,7 +1030,7 @@ static void render_hndlr_directory(pane_cx_t *pane_cx)
 static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
 {
     rect_t * pane = &pane_cx->pane;
-    int      cols = (pane->w/300 == 0 ? 1 : pane->w/300);
+    int      cols = (pane->w/DIR_PIXELS_WIDTH == 0 ? 1 : pane->w/DIR_PIXELS_WIDTH);
     int      rc   = PANE_HANDLER_RET_DISPLAY_REDRAW;
     int      idx;
 
@@ -1061,12 +1059,12 @@ static int event_hndlr_directory(pane_cx_t *pane_cx, sdl_event_t *event)
         } else if (event->event_id == SDL_EVENT_KEY_HOME) {
             y_top = 0;
         } else if (event->event_id == SDL_EVENT_KEY_END) {
-            y_top = -((max_file_info - 1) / cols + 1) * 200 + 600;
+            y_top = -((max_file_info - 1) / cols + 1) * DIR_PIXELS_HEIGHT + 600;
         } else {
             FATAL("unexpected event_id 0x%x\n", event->event_id);
         }
 
-        int y_top_limit = -((max_file_info - 1) / cols + 1) * 200 + 600;
+        int y_top_limit = -((max_file_info - 1) / cols + 1) * DIR_PIXELS_HEIGHT + 600;
         if (y_top < y_top_limit) y_top = y_top_limit;
         if (y_top > 0) y_top = 0;
         break;

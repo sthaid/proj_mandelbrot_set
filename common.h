@@ -35,6 +35,9 @@
 #define CACHE_WIDTH          2000
 #define CACHE_HEIGHT         2000
 
+#define DIR_PIXELS_WIDTH     300
+#define DIR_PIXELS_HEIGHT    200
+
 //
 // typedefs
 //
@@ -50,7 +53,7 @@ typedef struct {
     int           wavelen_scale;
     bool          deleted;
     int           reserved[10];
-    unsigned int  dir_pixels[200][300];
+    unsigned int  dir_pixels[DIR_PIXELS_HEIGHT][DIR_PIXELS_WIDTH];
 } cache_file_info_t;
 
 //
