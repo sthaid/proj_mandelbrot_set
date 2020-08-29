@@ -62,7 +62,7 @@ The following capabilities are included:
 - window size is adjustable, and can also be specified when starting
   the mbs program
 
-Their are 4 displays:
+There are 4 displays:
 - main display: displays the Mandelbrot Set in the entire window, the
   info area at the top left can be disabled using the 'i' keystroke
 - help display: show this text
@@ -79,7 +79,7 @@ Suggestions for future improvements:
   will be limitted by the number of FPU per socket; or use integer math 
 
 ===================================
--- CONTROLS COMMON TO ALL DISPLAYS 
+CONTROLS COMMON TO ALL DISPLAYS 
 ===================================
 
 h:   display help
@@ -91,7 +91,7 @@ f:   toggle full screen
 q:   quit
 
 ===================================
--- CONTROLS FOR THE MANDELBROT SET DISPLAY
+CONTROLS FOR THE MANDELBROT SET DISPLAY
 ===================================
 
 left-click-drag:   pan
