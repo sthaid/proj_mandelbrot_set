@@ -1,5 +1,3 @@
-// xxx comments throughout
-
 #include <common.h>
 
 //
@@ -190,7 +188,9 @@ void cache_param_change(complex ctr, int zoom, int win_width, int win_height, bo
     cache_win_width  = win_width;
     cache_win_height = win_height;
 
-    // xxx explain
+    // when the cache params change it is likely to be followed by a 
+    // call to cache_get_mbsval, so we need to adjust the array of cached
+    // mbs values at the cache_zoom level to be prepared for this call
     cache_adjust_mbsval_ctr(&cache[cache_zoom]);
 
     // run the cache_thread, the cache thread restarts from the begining
@@ -203,6 +203,9 @@ void cache_get_mbsval(unsigned short *mbsval, int width, int height)
 {
     int idx_b, idx_b_first, idx_b_last;
     cache_t *cp = &cache[cache_zoom];
+
+    // this routine returns mbs values [width][height], centered on
+    // cache_ctr, for the current cache_zoom level
 
     idx_b_first =  (CACHE_HEIGHT/2) + height / 2;
     idx_b_last  = idx_b_first - height + 1;
@@ -247,6 +250,11 @@ static void cache_file_init(void)
     int            rc, idx, file_num, max_file, file_num_array[1000];
     DIR           *d;
     struct dirent *de;
+
+    // this routine enumerates the .mbs_cache/mbs_nnnn.dat files, and
+    //  for each of these files the cache_file_info_t (header) is read 
+    //  and validated and saved in the global file_info[] array;
+    // the file_info array is sorted by the file number 'nnnn'
 
     // make the MBS_CACHE_DIR directory, if needed
     rc = stat(MBS_CACHE_DIR, &statbuf);
@@ -330,6 +338,13 @@ int cache_file_create(complex ctr, int zoom, double zoom_fraction, int wavelen_s
     file_format_t      file;
     cache_file_info_t *fi = &file.fi;
 
+    // This routine is called, by mbs.c 's' keystroke, to create a new save place file
+    // in the MBS_CACHE dir, the created file does not contain any cached mbs values, but
+    // just contains the values needed to recreate the mbs image (such as ctr, zoom and 
+    // color lut info). Also the directory image pixel array is included in the file.
+    // What is written to the file is considered the file's header. Subsequent calls to 
+    // the cache_file_update routine can be made to add cached mbs values to this file.
+
     // create a new file_name
     sprintf(file_name, "mbs_%04d.dat", ++last_file_num);
 
@@ -368,7 +383,11 @@ void cache_file_delete(int idx)
 {
     cache_file_info_t *fi = IDX_TO_FI(idx);
 
-    // if already deleted just return
+    // This routine will remove (unlink) the file and set the file_info[idx].deleted
+    // flag. A subsequent call to cache_file_garbage_collect will remove the 
+    // deleted entries from the file_info array.
+
+    // if already marked deleted just return
     if (fi->deleted) {
         return;
     }
@@ -384,6 +403,13 @@ void cache_file_read(int idx)
     cache_file_info_t  fi_tmp;
     int                fd, i, n;
 
+    // This routine will read the cached mbs values from the file into the
+    // cache[] array which is defined globally in this file.
+    // File_type:
+    // - 0     : has just the cache_file_info_t (the file header) and no cached mbs values
+    // - 1 & 2 : both have cached mbs values; (1) has just the cached values for the 
+    //           zoom level that was saved; (2) has cached mbs values for all zoom levels
+
     // file_type 0 does not contain any cached mbs values
     if (fi->file_type == 0) {
         return;
@@ -393,12 +419,13 @@ void cache_file_read(int idx)
     OPEN(fi->file_name, fd, O_RDONLY);
     READ(fi->file_name, fd, &fi_tmp, sizeof(fi_tmp));
 
-    // sanity check that the file hdr just read is correct
+    // sanity check that the file hdr just read is correct;
+    // it most be equal to the file_info that we already have 
     if (memcmp(&fi_tmp, fi, sizeof(cache_file_info_t)) != 0) {
         FATAL("file hdr error in %s, fn=%s\n", fi->file_name, fi_tmp.file_name);
     }
 
-    // set the expected number of zoom levels saved in the file
+    // set the number of zoom levels that are expected to be in this file
     n = (fi->file_type == 1 ? 1 : 
          fi->file_type == 2 ? MAX_ZOOM
                             : ({FATAL("file_type=%d\n",fi->file_type);0;}));
@@ -424,7 +451,8 @@ void cache_file_read(int idx)
     // close file
     CLOSE(fi->file_name, fd);
 
-    // xxx comment
+    // update the cache ctr and zoom with the new ctr and zoom for this file;
+    // note that this call will also issue the CACHE_THREAD_REQUEST_RUN
     cache_param_change(fi->ctr, fi->zoom, cache_win_width, cache_win_height, true);
 }
 
@@ -435,6 +463,13 @@ void cache_file_update(int idx, int file_type)
 
     INFO("idx=%d fn=%s file_type=%d->%d\n", idx, fi->file_name, fi->file_type, file_type);
 
+    // This routine will re-write the specified file using the requested file_type.
+    // File_type:
+    // 0 - just the hdr (255K file size)
+    // 1 - hdr plus cached mbs value for the file's zoom level (7.9M file size)
+    // 2 - hdr plus cached mbs values for all zoom levels (355M file size);
+    //     this is useful if autozoom is going to be used to view all zoom levels
+
     // when called for file_type 1 or 2 the cache_ctr and cache_zoom
     // are supposed to be equal to the file_info
     if (file_type == 1 || file_type == 2) {
@@ -443,11 +478,14 @@ void cache_file_update(int idx, int file_type)
         }
     }
 
+    // open for writing, and truncate
     OPEN(fi->file_name, fd, O_TRUNC|O_WRONLY);
 
+    // write the file header
     fi->file_type = file_type;
     WRITE(fi->file_name, fd, fi, sizeof(cache_file_info_t));
 
+    // write the desired zoom levels
     for (z = 0; z < MAX_ZOOM; z++) {
         if ((file_type == 1 && z == fi->zoom) || (file_type == 2)) {
             INFO("- writing zoom lvl %d\n", z);
@@ -458,12 +496,15 @@ void cache_file_update(int idx, int file_type)
         }
     }
 
+    // close
     CLOSE(fi->file_name, fd);
 }
 
 void cache_file_garbage_collect(void)
 {
     int idx = 0;
+
+    // This routine will remove file_info array entries that have been marked 'deleted'.
 
     while (idx < max_file_info) {
         if (file_info[idx]->deleted) {
@@ -488,6 +529,14 @@ static void cache_adjust_mbsval_ctr(cache_t *cp)
     int old_y, new_y, delta_x, delta_y;
     unsigned short (*new_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
     unsigned short (*old_mbsval)[CACHE_HEIGHT][CACHE_WIDTH];
+
+    // This routine is called to update cached mbs values when the cache center
+    // has changed. If the cache center has changed dramatically then this routine
+    // will result in setting all cached mbs values to MBSVAL_NOT_COMPUTED (65535 aka -1).
+    // If the cache center has changed less dramatically then the cached mbs values are
+    // copied from the current array of cached mbs values to a new array, adjusting for
+    // the change in the center (delta_x,delta_y). In this case the new array will have 
+    // some areas where the mbs values are MBSVAL_NOT_COMPUTED.
 
     delta_x = nearbyint((creal(cp->ctr) - creal(cache_ctr)) / cp->pixel_size);
     delta_y = nearbyint((cimag(cp->ctr) - cimag(cache_ctr)) / cp->pixel_size);
@@ -533,6 +582,17 @@ static void cache_adjust_mbsval_ctr(cache_t *cp)
 }
 
 // -----------------  CACHE THREAD  ---------------------------------------------------
+
+// The cache thread's job is to pre-compute and save mbs values from locations that
+// are likely to be accessed soon by the user. For example: if the user has been zooming
+// in on a location, then the cache thread will precompute cache values at subsequent 
+// zoom levels for the same location.
+//
+// The size of a single cache level is 2000 x 2000. The window size will be smaller
+// than the cache size. The cache thread will first ensure that mbs values are computed
+// for all cache levels to satisfy the window size (this is phase-1). Phase-2 will next
+// complete the computation of all mbs values for the full cache size 2000 x 2000, and
+// for all cache levels.
 
 bool cache_thread_first_phase1_zoom_lvl_is_finished(void)
 {
@@ -597,13 +657,7 @@ restart:
         cache_status_phase_inprog     = 0;
         cache_status_zoom_lvl_inprog  = -1;
 
-        // debug print the completion status, using vars
-        // - start_tsc
-        // - start_us
-        // - was_stopped
-        // - mbs_calc_count
-        // - mbs_not_calc_count
-        // - total_mbs_tsc
+        // debug print the completion status
         if (start_tsc != 0) {
             DEBUG("%s  mbs_calc_count=%d,%d  duration=%ld ms  mbs_calc=%ld %%\n",
                  !was_stopped ? "DONE" : "STOPPED",
@@ -613,8 +667,12 @@ restart:
                  total_mbs_tsc * 100 / (tsc_timer() - start_tsc));
         }
 
-        // state is now idle;
         // wait here for a request
+        //
+        // note that a request can either be:
+        // - STOP: since the cache thread is already stopped this is a noop
+        // - RUN:  the cache thread will run, and compute the mbs values at the
+        //         current cache center, and for all zoom levels
         while (cache_thread_request == CACHE_THREAD_REQUEST_NONE) {
             usleep(100);
         }
@@ -629,39 +687,60 @@ restart:
         cache_thread_request = CACHE_THREAD_REQUEST_NONE;
         __sync_synchronize();
 
-        // xxx comments for all of the following
+        // init variables at the start of the cache thread running
         start_tsc          = tsc_timer();
         start_us           = microsec_timer();
         was_stopped        = false;
         mbs_calc_count     = 0;
         mbs_not_calc_count = 0;
         total_mbs_tsc      = 0;
+        win_min_x          = CACHE_WIDTH/2  - cache_win_width/2  - 3;
+        win_max_x          = CACHE_WIDTH/2  + cache_win_width/2  + 3;
+        win_min_y          = CACHE_HEIGHT/2 - cache_win_height/2 - 3;
+        win_max_y          = CACHE_HEIGHT/2 + cache_win_height/2 + 3;
 
-        win_min_x = CACHE_WIDTH/2  - cache_win_width/2  - 3;
-        win_max_x = CACHE_WIDTH/2  + cache_win_width/2  + 3;
-        win_min_y = CACHE_HEIGHT/2 - cache_win_height/2 - 3;
-        win_max_y = CACHE_HEIGHT/2 + cache_win_height/2 + 3;
-
+        // the zoom_lvl_tbl is an array of zoom levels in the order that the
+        // cache thread will be processing them; for example suppose the
+        // user has recently been zooming in, and currently at zoom level 42,
+        // then the returned zoom_lvl_tbl will be:
+        //   42,  43,44,45,46,  41,40,39,...,0
         cache_thread_get_zoom_lvl_tbl(zoom_lvl_tbl);
 
-        // phase1: loop over all zoom levels
+        // phase1: loop over all zoom levels,
+        //
+        // this code section will compute mbs values, for the zoom levels in zoom_lvl_tbl, and
+        // extending to the window size dimensions.
         DEBUG("STARTING PHASE1\n");
         cache_status_phase_inprog = 1;
         for (n = 0; n < MAX_ZOOM; n++) {
             CHECK_FOR_STOP_REQUEST;
 
+            // publish cache_status_zoom_lvl_inprog, which is used by the
+            // cache_status routine; thus the need for __sync_synchronize
             cache_status_zoom_lvl_inprog  = zoom_lvl_tbl[n];
-            DEBUG("- inprog : %d - %d\n", cache_status_phase_inprog, cache_status_zoom_lvl_inprog);
             __sync_synchronize();
+            DEBUG("- inprog : %d - %d\n", cache_status_phase_inprog, cache_status_zoom_lvl_inprog);
 
+            // since it is likely the cache thread has been requested to run becuae
+            // the cache center has changed, we need to first call cache_adjust_mbsval_ct
+            // to move the currently saved mbs values to locations in the array that
+            // are consistent with the new cache center
+            //
+            // note that the cache_adjust_mbsval_ctr routine will reset the phase1 and phase2
+            // spirals if an adjustment was made
             cp = &cache[cache_status_zoom_lvl_inprog];
-
             cache_adjust_mbsval_ctr(cp);
 
+            // if phase1 spiral is done (meaning that the cache thread has computed 
+            // the mbs values in locations spiralling out from the center to encompass
+            // the window dimensions) then we continue with phase1 at the next 
+            // zoom_lvl_tbl entry
             if (cp->phase1_spiral_done) {
                 continue;
             }
 
+            // loop until the cache zoom level being processed has all of its
+            // mbs values computed encompassing the entire window dimenstions
             while (true) {
                 CHECK_FOR_STOP_REQUEST;
 
@@ -684,12 +763,16 @@ restart:
             }
 
             if (n == 0) {
-                DEBUG("FINISHD phase1 lvl0\n");
                 cache_thread_first_phase1_zoom_lvl_finished = true;
+                __sync_synchronize();
+                DEBUG("FINISHD phase1 lvl0\n");
             }
         }
 
-        // phase2: loop over all zoom levels  xxx describe phase1 vs 2
+        // phase2: loop over all zoom levels; this code is similar to phase1
+        //
+        // this code section will compute mbs values, for the zoom levels in zoom_lvl_tbl, and
+        // extending to the cache size dimensions.
         DEBUG("STARTING PHASE2\n");
         cache_status_phase_inprog = 2;
         for (n = 0; n < MAX_ZOOM; n++) {
@@ -700,7 +783,6 @@ restart:
             __sync_synchronize();
 
             cp = &cache[cache_status_zoom_lvl_inprog];
-
             if (cp->phase2_spiral_done) {
                 continue;
             }
@@ -724,14 +806,15 @@ restart:
         }
 
         // caching of all zoom levels has completed
-        DEBUG("ALL FINISHED \n");
         cache_thread_all_finished = true;
+        __sync_synchronize();
+        DEBUG("ALL FINISHED \n");
     }
 }
 
 static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
 {
-    int         n, idx;
+    int n, idx;
 
     static bool dir_is_up      = true;
     static int  last_cache_zoom = 0;
@@ -773,16 +856,19 @@ static void cache_thread_get_zoom_lvl_tbl(int *zoom_lvl_tbl)
 
 static void cache_thread_issue_request(int req)
 {
-    // xxx
+    // reset cache thread progress status flags
     cache_thread_first_phase1_zoom_lvl_finished = false;
     cache_thread_all_finished = false;
 
-    // xxx comments
+    // set the cache_thread_request; the cache_thread is polling on this variable
     __sync_synchronize();
     cache_thread_request = req;
     __sync_synchronize();
 
-    // xxx comments
+    // wait here until the cache_thread acknowledges receipt of the request;
+    // note - once the cache_thread sees the new request the cache thread
+    //        will first set cache_thread_request back to CACHE_THREAD_REQUEST_NONE and
+    //        then start doing its work
     while (cache_thread_request != CACHE_THREAD_REQUEST_NONE) {
         usleep(100);
     }
@@ -790,6 +876,8 @@ static void cache_thread_issue_request(int req)
 
 static void cache_spiral_init(spiral_t *s, int x, int y)
 {
+    // This routine resets the spiral to a starting location (x,y).
+
     memset(s, 0, sizeof(spiral_t));
     s->x = x;
     s->y = y;
@@ -801,6 +889,10 @@ static void cache_spiral_get_next(spiral_t *s, int *x, int *y)
     #define DIR_DOWN   1
     #define DIR_LEFT   2
     #define DIR_UP     3
+
+    // The first call to this routine, following cache_spiral_init, will
+    // return the initial x,y of the spiral.
+    // Subsequent calls will return the next x,y in the spiral.
 
     if (s->maxcnt == 0) {
         s->maxcnt = 1;
