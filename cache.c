@@ -14,10 +14,8 @@
 
 #define CTR_INVALID                 (999 + 0 * I)
 
-#define MBS_CACHE_DIR               ".mbs_cache"
-
 #define PATHNAME(fn) \
-    ({static char s[500]; sprintf(s, MBS_CACHE_DIR "/" "%s", fn), s;})
+    ({static char s[500]; sprintf(s, "%s/%s", cache_dir, fn), s;})
 
 #define OPEN(fn,fd,mode) \
     do { \
@@ -104,6 +102,8 @@ static bool     cache_thread_all_finished;
 
 static int      cache_status_phase_inprog;
 static int      cache_status_zoom_lvl_inprog;
+
+static char     cache_dir[200];
 
 //
 // prototypes
@@ -248,29 +248,41 @@ static void cache_file_init(void)
     int            rc, idx, file_num, max_file, file_num_array[1000];
     DIR           *d;
     struct dirent *de;
+    char          *home_dir, cmd[1000];
 
-    // this routine enumerates the .mbs_cache/mbs_nnnn.dat files, and
+    // this routine enumerates the $HOME/.mbs_cache/mbs_nnnn.dat files, and
     //  for each of these files the cache_file_info_t (header) is read 
     //  and validated and saved in the global file_info[] array;
     // the file_info array is sorted by the file number 'nnnn'
 
-    // make the MBS_CACHE_DIR directory, if needed
-    rc = stat(MBS_CACHE_DIR, &statbuf);
+    // create pathname foe cache_dir
+    home_dir = getenv("HOME");
+    if (home_dir == NULL) {
+        FATAL("env var HOME not set\n");
+    }
+    sprintf(cache_dir, "%s/.mbs_cache", home_dir);
+
+    // if cache_dir doesn't already exist then
+    //   copy the local .mbs_cache to $HOME
+    // endif
+    rc = stat(cache_dir, &statbuf);
     if (rc == 0 && (statbuf.st_mode & S_IFDIR) == 0) {
-        FATAL("%s exists and is not a directory\n", MBS_CACHE_DIR);
+        FATAL("%s exists and is not a directory\n", cache_dir);
     }
     if (rc < 0 && errno == ENOENT) {
-        rc = mkdir(MBS_CACHE_DIR, 0755);
-        if (rc != 0) {
-            FATAL("failed to create %s directory, %s\n", MBS_CACHE_DIR, strerror(errno));
+        rc = stat("./.mbs_cache", &statbuf);
+        if (rc < 0) {
+            FATAL("git repo dir ./.mbs_cache does not exist\n");
         }
+        sprintf(cmd, "cp -r .mbs_cache %s", home_dir);
+        system(cmd);
     }
 
-    // get sorted list of file_num contained in the MBS_CACHE_DIR;
+    // get sorted list of file_num contained in the cache_dir;
     // the file_name format is 'mbs_NNNN.dat', where NNNN is the file_num
-    d = opendir(MBS_CACHE_DIR);
+    d = opendir(cache_dir);
     if (d == NULL) {
-        FATAL("failed opendir %s, %s\n", MBS_CACHE_DIR, strerror(errno));
+        FATAL("failed opendir %s, %s\n", cache_dir, strerror(errno));
     }
     max_file = 0;
     while ((de = readdir(d)) != NULL) {
