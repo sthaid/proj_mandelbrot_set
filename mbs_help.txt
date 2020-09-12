@@ -71,7 +71,7 @@ There are 4 displays:
   the location is not part of the set, to a color
 - saved places directory: shows small images of the saved places, and 
   provides controls to adjust the amount of caching that is included in the
-  saved places files (these files are in the .mbs_cache directory)
+  saved places files (these files are in the ~/.mbs_cache directory)
   
 Suggestions for future improvements:
 - increase zoom range
@@ -141,7 +141,7 @@ The title line indicates, from left to right:
 - zoom:      magnification = 2^zoom
 - file_type: 0,1,2 - see description above
 
-The save places files are stored in the .mbs_cache directory.
+The save places files are stored in the ~/.mbs_cache directory.
 The size of each file depends on the file_type:
 - 0: 255K
 - 1: 7.9M
