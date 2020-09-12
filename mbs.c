@@ -33,7 +33,10 @@
 
 static int     win_width   = DEFAULT_WIN_WIDTH;
 static int     win_height  = DEFAULT_WIN_HEIGHT;
+static bool    full_screen = true;
+
 static double  pixel_size_at_zoom0;
+
 
 //
 // prototypes
@@ -103,6 +106,11 @@ int main(int argc, char **argv)
     DEBUG("requested win_width=%d win_height=%d\n", requested_win_width, requested_win_height);
     DEBUG("actual    win_width=%d win_height=%d\n", win_width, win_height);
 
+    // if full_screen is initially set then enter full_screen mode
+    if (full_screen) {
+        sdl_full_screen(true);
+    }
+
     // initialize the caching code
     pixel_size_at_zoom0 = 4. / win_width;
     cache_init(pixel_size_at_zoom0);
@@ -132,7 +140,6 @@ typedef struct {
     unsigned long expire_us;
 } alert_t;
 
-static bool    full_screen          = false;
 static int     display_select       = DISPLAY_SELECT_MBS;
 static int     display_select_count = 1;
 static alert_t alert                = {.expire_us = 0};
