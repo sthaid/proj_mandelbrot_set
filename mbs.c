@@ -751,8 +751,8 @@ static void render_hndlr_help(pane_cx_t *pane_cx)
     char s[200];
     int row, len, y;
     rect_t * pane = &pane_cx->pane;
-    char *line[MAX_LINE];
 
+    static char *line[MAX_LINE];
     static bool first_call = true;
     static int last_display_select_count;
 
