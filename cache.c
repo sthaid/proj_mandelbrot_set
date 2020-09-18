@@ -275,7 +275,10 @@ static void cache_file_init(void)
             FATAL("git repo dir ./.mbs_cache does not exist\n");
         }
         sprintf(cmd, "cp -r .mbs_cache %s", home_dir);
-        system(cmd);
+        rc = system(cmd);
+        if (rc != 0) {
+            FATAL("cmd '%s' failed, rc=%d exitstatus=%d\n", cmd, rc, WEXITSTATUS(rc));
+        }
     }
 
     // get sorted list of file_num contained in the cache_dir;
