@@ -24,8 +24,8 @@ DEP = $(SRC_MBS:.c=.d)
 all: $(TARGETS)
 
 mbs: $(SRC_MBS:.c=.o)
-	$(CC) -lpthread -lm -ljpeg -lpng -lSDL2 -lSDL2_ttf \
-              -o $@ $(SRC_MBS:.c=.o)
+	$(CC) -o $@ $(SRC_MBS:.c=.o) \
+              -lpthread -lm -ljpeg -lpng -lSDL2 -lSDL2_ttf
 
 -include $(DEP)
 
