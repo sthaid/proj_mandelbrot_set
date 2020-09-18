@@ -16,7 +16,9 @@
 
 #include <SDL.h>
 #include <SDL_ttf.h>
+#ifdef ENABLE_UTIL_SDL_BUTTON_SOUND
 #include <SDL_mixer.h>
+#endif
 
 #include "util_sdl.h"
 #include "util_sdl_button_sound.h"

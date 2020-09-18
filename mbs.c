@@ -87,6 +87,7 @@ int main(int argc, char **argv)
             if (cnt != 2 || win_width < 100 || win_width > CACHE_WIDTH || win_height < 100 || win_height > CACHE_HEIGHT) {
                 FATAL("-g %s invalid\n", optarg);
             }
+            full_screen = false;
             break; }
         case 'd':
             debug_enabled = true;
